@@ -34,13 +34,22 @@ func TestCanonicalResolvesRelativePaths(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, executable, "-test.run=^TestCanonicalRelativePathHelper$")
-	command.Dir = root
-	command.Env = append(os.Environ(), "TREECLEAR_PATH_HELPER_INPUT="+name, "TREECLEAR_PATH_HELPER_EXPECTED="+expected)
-	if output, err := command.CombinedOutput(); err != nil {
-		test.Fatalf("relative-path subprocess: %v\n%s", err, output)
+	workingDirectories := []string{root}
+	if runtime.GOOS != "windows" {
+		alias := filepath.Join(test.TempDir(), "cwd-alias")
+		makeSymlink(test, root, alias)
+		workingDirectories = append(workingDirectories, alias)
+	}
+	for _, directory := range workingDirectories {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		command := exec.CommandContext(ctx, executable, "-test.run=^TestCanonicalRelativePathHelper$")
+		command.Dir = directory
+		command.Env = append(os.Environ(), "PWD="+directory, "TREECLEAR_PATH_HELPER_INPUT="+name, "TREECLEAR_PATH_HELPER_EXPECTED="+expected)
+		output, err := command.CombinedOutput()
+		cancel()
+		if err != nil {
+			test.Errorf("relative-path subprocess from %q: %v\n%s", directory, err, output)
+		}
 	}
 }
 

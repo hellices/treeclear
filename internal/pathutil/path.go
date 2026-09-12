@@ -15,15 +15,18 @@ func Canonical(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if !filepath.IsAbs(prepared) {
+		workingDirectory, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("absolute path %q: %w", path, err)
+		}
+		prepared = workingDirectory + string(filepath.Separator) + prepared
+	}
 	resolved, err := filepath.EvalSymlinks(prepared)
 	if err != nil {
 		return "", fmt.Errorf("resolve path %q: %w", path, err)
 	}
-	absolute, err := filepath.Abs(resolved)
-	if err != nil {
-		return "", fmt.Errorf("absolute path %q: %w", path, err)
-	}
-	normalized, err := preparePath(absolute)
+	normalized, err := preparePath(resolved)
 	if err != nil {
 		return "", err
 	}
