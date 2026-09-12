@@ -329,7 +329,7 @@ func TestRepositoryGitDiagnostics(test *testing.T) {
 	if _, err := repository.runGit(context.Background(), "not-a-real-fixture-command"); err == nil {
 		test.Fatal("invalid Git command succeeded")
 	} else {
-		for _, expected := range []string{repository.Root, "not-a-real-fixture-command", "stdout", "stderr", "not a git command"} {
+		for _, expected := range []string{strconv.Quote(repository.Root), "not-a-real-fixture-command", "stdout", "stderr", "not a git command"} {
 			if !strings.Contains(err.Error(), expected) {
 				test.Errorf("diagnostic %q lacks %q", err, expected)
 			}
