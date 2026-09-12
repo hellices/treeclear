@@ -5,6 +5,10 @@
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [003 Treeclear Adapter Lifecycle](003-adapter-lifecycle.md)
 
+Stage 000 establishes baseline contributor rules and native CI before feature
+development. Tasks 1 and 7 extend that foundation with the completed product's
+documentation, e2e, platform, and release requirements; they do not replace it.
+
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver Treeclear as a documented, agent-friendly, scheduled, tested, signed macOS and Windows product with reproducible release artifacts and SBOMs.

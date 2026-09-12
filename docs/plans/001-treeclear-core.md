@@ -3,7 +3,12 @@
 - Status: Planned
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
-- Depends on: none
+- Depends on: [000 Development Harness](000-development-harness.md)
+
+Stage 000 supplies the module, development commands, and shared test fixtures.
+Reuse those files; Task 1 still owns the product CLI and dependencies, and
+Task 4 still owns inventory integration coverage. No product task is complete
+merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

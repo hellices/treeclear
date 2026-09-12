@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "activeStage": "000",
+  "stages": [
+    {
+      "id": "000",
+      "name": "Development harness",
+      "requirements": [
+        {"id": "H001", "description": "Malformed or ambiguous acceptance contracts fail closed", "package": "./internal/harness", "test": "TestManifestRejectsInvalidContracts"},
+        {"id": "H002", "description": "Evidence requires executed passing tests without skipped subtests", "package": "./internal/harness", "test": "TestEvidenceRequiresExecutedPassingTests"},
+        {"id": "H003", "description": "Actual skipped and missing Go tests cannot satisfy the gate", "package": "./internal/harness", "test": "TestGateRejectsSkippedAndMissingRealTests"},
+        {"id": "H004", "description": "Product code cannot inherit a harness-only completion claim", "package": "./internal/harness", "test": "TestScopeRejectsPrematureProductCode"},
+        {"id": "H005", "description": "Local documentation links remain resolvable inside the repository", "package": "./internal/harness", "test": "TestDocumentationLinksStayInsideRepository"},
+        {"id": "H006", "description": "Verification stops at the first failed check", "package": "./internal/harness", "test": "TestHarnessVerifyStopsOnFailure"},
+        {"id": "H007", "description": "Inherited Go execution overrides cannot alter verification commands", "package": "./internal/harness", "test": "TestCommandEnvironmentIsDeterministic"},
+        {"id": "H008", "description": "Command cancellation propagates as failure", "package": "./internal/harness", "test": "TestCommandCancellationPropagates"},
+        {"id": "H009", "description": "Temporary Git fixtures are isolated from host Git configuration", "package": "./internal/testutil", "test": "TestRepositoryIsolatedFromHostGit"},
+        {"id": "H010", "description": "Fixtures represent real primary, linked, dirty, and locked worktrees", "package": "./internal/testutil", "test": "TestRepositoryWorktrees"},
+        {"id": "H011", "description": "Fixture helpers reject outside paths and option-like arguments", "package": "./internal/testutil", "test": "TestRepositoryRejectsEscapes"},
+        {"id": "H012", "description": "Tests can control time deterministically and without data races", "package": "./internal/testutil", "test": "TestClockDeterministic"},
+        {"id": "H013", "description": "Operation recording supports deterministic failures and defensive copies", "package": "./internal/testutil", "test": "TestRecorderFailuresAndOrder"},
+        {"id": "H014", "description": "CI uses pinned actions, least privilege, and native macOS/Windows checks", "package": "./internal/harness", "test": "TestCIWorkflowSafetyContract"},
+        {"id": "H015", "description": "Contributor and PR instructions preserve honest stage and review evidence", "package": "./internal/harness", "test": "TestRepositoryGuidanceContract"}
+      ]
+    },
+    {
+      "id": "001",
+      "name": "Safety core",
+      "requirements": [
+        {"id": "C001", "description": "Safety defaults are exactly seven days and fifteen minutes", "package": "./internal/config", "test": "TestDefaultSafetyValues"},
+        {"id": "C002", "description": "Unknown or incomplete evidence never means inactive", "package": "./internal/policy", "test": "TestPolicyNeverTreatsUnknownAsInactive"},
+        {"id": "C003", "description": "Every changed precondition invalidates the candidate fingerprint", "package": "./internal/plan", "test": "TestCandidateFingerprintChangesWithAnyPrecondition"},
+        {"id": "C004", "description": "Expired plans cannot apply", "package": "./internal/plan", "test": "TestStoreRejectsExpiredPlan"},
+        {"id": "C005", "description": "Tampered actions cannot apply", "package": "./internal/plan", "test": "TestStoreRejectsTamperedAction"},
+        {"id": "C006", "description": "All candidates pass preflight before any snapshot or removal", "package": "./internal/apply", "test": "TestApplyRevalidatesAllCandidatesBeforeSnapshotOrRemoval"},
+        {"id": "C007", "description": "All required snapshots verify before any removal", "package": "./internal/apply", "test": "TestApplyCreatesAllSnapshotsBeforeFirstRemoval"},
+        {"id": "C008", "description": "A real linked worktree restores byte-for-byte and preserves its branch", "package": "./tests/e2e", "test": "TestCoreRemoveAndRestore"},
+        {"id": "C009", "description": "PID reuse cannot satisfy recorded process identity", "package": "./internal/process", "test": "TestProcessIdentityRejectsPIDReuse"},
+        {"id": "C010", "description": "Protected, primary, current, dirty, and locked worktrees are never removed", "package": "./internal/apply", "test": "TestApplyNeverRemovesProtectedCandidates"}
+      ]
+    },
+    {
+      "id": "002",
+      "name": "Agent adapters",
+      "requirements": [
+        {"id": "A001", "description": "Adapter manifests grant no mutation or undeclared network capability", "package": "./internal/adapter", "test": "TestValidateManifestRejectsMutationAndNetwork"},
+        {"id": "A002", "description": "SQLite evidence sources reject writes", "package": "./internal/adapter/source", "test": "TestSQLiteRejectsMutationQuery"},
+        {"id": "A003", "description": "Normalized evidence excludes prompts and summaries", "package": "./internal/adapter/mapping", "test": "TestMapperNeverCopiesSummaryOrPrompt"},
+        {"id": "A004", "description": "Executable replacement invalidates recorded evidence", "package": "./internal/adapter/source", "test": "TestExecutableFingerprintChangesWhenBinaryChanges"},
+        {"id": "A005", "description": "Relevant provider failures become unknown evidence", "package": "./internal/adapter", "test": "TestAdapterFailuresBecomeUnknown"},
+        {"id": "A006", "description": "Apply never executes provider commands", "package": "./tests/e2e", "test": "TestApplyNeverExecutesProviderCommands"}
+      ]
+    },
+    {
+      "id": "003",
+      "name": "Adapter lifecycle",
+      "requirements": [
+        {"id": "L001", "description": "Tampered signed payloads are rejected", "package": "./internal/signing", "test": "TestVerifyRejectsTamperedPayload"},
+        {"id": "L002", "description": "Activation is atomic and retains the previous version", "package": "./internal/adapterstore", "test": "TestActivateRetainsPreviousAndIsAtomic"},
+        {"id": "L003", "description": "Digest mismatch is rejected before installation", "package": "./internal/adapterupdate", "test": "TestUpdateRejectsDigestMismatchBeforeInstall"},
+        {"id": "L004", "description": "Failed health probes roll back activation", "package": "./internal/adapterupdate", "test": "TestUpdateRollsBackFailedHealthProbe"},
+        {"id": "L005", "description": "Apply has no network dependency", "package": "./tests/e2e", "test": "TestApplyIsOffline"},
+        {"id": "L006", "description": "Apply and adapter update cannot overlap", "package": "./tests/e2e", "test": "TestUpdateAndApplyMutuallyExclusive"}
+      ]
+    },
+    {
+      "id": "004",
+      "name": "Operations and release",
+      "requirements": [
+        {"id": "O001", "description": "Scheduled cleanup defaults to weekly plan-only execution", "package": "./internal/schedule", "test": "TestDefaultScheduleIsWeeklyPlanOnly"},
+        {"id": "O002", "description": "Scheduled apply rejects local custom trust", "package": "./internal/schedule", "test": "TestScheduledApplyRejectsLocalCustomTrust"},
+        {"id": "O003", "description": "Completed product documentation remains canonical and consistent", "package": "./internal/docs", "test": "TestCanonicalDocumentsExistAndDoNotReferenceToolSpecificPlanPaths"},
+        {"id": "O004", "description": "Release configuration requires signing, attestations, and checksums", "package": "./internal/ci", "test": "TestReleaseRequiresSigningAndAttestation"}
+      ]
+    }
+  ]
+}
