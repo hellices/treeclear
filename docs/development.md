@@ -15,6 +15,9 @@ gofmt -l .
 commands directly in PowerShell. CI runs both native macOS and Windows tests.
 For a quick iteration, use `go test -count=1 ./internal/<package>`.
 
+`make build` writes the CLI into `bin/`; `make build VERSION=v0.0.0-test`
+sets the version string. Without Make, use `go build -o bin/ ./cmd/treeclear`.
+
 ## Test isolation
 
 `internal/testutil` provides real temporary Git repositories, a controllable
@@ -24,6 +27,12 @@ configuration, hooks, credentials, and home directories from the developer.
 path operands inside temporary fixtures. It is not a Git command sandbox.
 Use synthetic provider records and injected failures; never scan or remove
 real user worktrees or sessions in tests.
+
+The read-only CLI integration tests use those repositories plus synthetic
+process sources. Binary help/version tests run without Git on the child PATH.
+Native process smoke tests inspect only the current test process. A test
+requiring distinct case-sensitive names reports a skip on filesystems that
+cannot create them; cross-compilation does not replace native Windows tests.
 
 ## Delivery
 

@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: Planned
+- Status: In progress — read-only CLI slice
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -11,6 +11,12 @@ Task 4 still owns inventory integration coverage. No product task is complete
 merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+Current delivery covers Tasks 1–6 and the read-only `scan` command brought
+forward from Task 7. The remaining Task 7 plan persistence, integrity, and
+`plan`/`explain` commands, plus Tasks 8–11 cleanup and recovery, remain pending.
+This split provides a usable inspection CLI without prematurely exposing
+mutation commands. Agent adapters and later plans remain unimplemented.
 
 **Goal:** Build a working macOS and Windows Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, safely removes approved worktrees, and restores them from verified local snapshots.
 

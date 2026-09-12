@@ -2,28 +2,67 @@
 
 Safely clear stale coding-agent worktrees.
 
-The repository currently contains development scaffolding and isolated Git
-test fixtures. The product CLI is being built in [Plan 001](docs/plans/001-treeclear-core.md).
+**Read-only core preview:** help, `version`, and `scan` are implemented.
+Plans, cleanup, recovery snapshots, restore, and agent-provider adapters are
+not implemented yet. A `safe` scan classification is not deletion authorization.
+
+## Try the CLI
+
+Install Go 1.26.5 and Git 2.36 or newer:
+
+```text
+go run ./cmd/treeclear version
+go run ./cmd/treeclear scan --root /path/to/workspace
+go run ./cmd/treeclear scan --root /path/to/workspace --inactivity-threshold 14d --format json
+```
+
+`--root` is repeatable and preserves commas and spaces in paths. Without a
+root, scan uses configured roots or the invocation directory. `treeclear`
+without arguments shows help and performs no collection.
+
+Scan discovers repositories and linked worktrees, inspects Git state, gathers
+process evidence, and prints `protected`, `review`, or `safe` with reasons.
+Primary/current, dirty, locked, unsafe, active, and unknown states remain
+protected. Uninspectable processes or failed collection are not inactivity.
+No command writes a plan or removes a worktree; branches and indexes remain
+unchanged by scan.
+
+JSON output includes `schemaVersion`, `toolVersion`, `collectedAt`, `complete`,
+`worktrees` (each with `worktree`, `evidence`, and `decision`), and `warnings`.
+Incomplete collection still prints available results, protects candidates,
+sets `complete: false`, and exits with status 1. Human output escapes control
+characters in paths; JSON retains the complete warning list.
+
+## Configuration
+
+Optional TOML files load from the OS user-configuration directory at
+`treeclear/config.toml`, then `treeclear.toml` in the invocation directory.
+Explicit flags override both files. Unknown settings and invalid safety
+values are errors. For example:
+
+```toml
+inactivity_threshold = "14d"
+base_branches = ["main", "master"]
+```
+
+Repository-local executable Git filters prevent read-only status collection
+and produce an unknown/protected result. Missing process permissions or
+unsupported OS inspection also remain unknown. Agent-provider evidence is
+deliberately absent in this preview.
 
 ## Development
 
-Install Go 1.26.5 and Git 2.36 or newer, then run:
+Run `go test -count=1 ./...`, `go test -race -count=1 ./...`, `go vet ./...`,
+and `go build ./...`; `gofmt -l .` must print nothing. `make verify` is an
+optional shortcut. `make build` writes the native CLI into `bin/` and accepts
+`VERSION=<version>`. Windows contributors can use Go commands in PowerShell.
 
-```text
-go test -count=1 ./...
-go test -race -count=1 ./...
-go vet ./...
-go build ./...
-gofmt -l .
-```
-
-Formatting output must be empty. These commands also work in PowerShell;
-`make verify` is an optional shortcut. CI runs natively on macOS and Windows.
-Tests use temporary repositories, not your workspaces or real agent sessions.
+Tests use temporary repositories and synthetic process records. Native
+process smoke tests inspect only the test process. CI runs on macOS and
+Windows; neither baseline tests nor this preview certify future cleanup.
 
 - [Implementation sequence](docs/plans/README.md)
 - [Development and review workflow](docs/development.md)
 - [Contributor instructions](AGENTS.md)
 - [Architecture](docs/architecture/2026-09-12-treeclear.md)
-- [Documentation index](docs/README.md)
 - [Apache-2.0 license](LICENSE)
