@@ -1,6 +1,6 @@
-# Treeclear Design
+# Treeclear Architecture
 
-Status: Approved
+Status: Accepted
 
 Date: 2026-09-12
 
@@ -286,8 +286,8 @@ Git's machine-readable interfaces:
 git worktree list --porcelain -z
 git status --porcelain=v2 -z --untracked-files=all
 git ls-files --others --exclude-standard -z
-git diff --binary
-git diff --cached --binary
+git diff --binary --no-ext-diff --no-textconv
+git diff --cached --binary --no-ext-diff --no-textconv
 ```
 
 It records:
@@ -471,6 +471,8 @@ A worktree is safe only when all of the following are true:
 - it has no active process;
 - it has no active or recent agent session;
 - all relevant evidence is known and non-conflicting;
+- every applicable adapter can be completely revalidated from local-readonly
+  evidence during apply;
 - it exceeds the configured inactivity threshold;
 - its branch and commit state have a proven recovery path;
 - all required adapters are healthy and trusted;
@@ -515,6 +517,7 @@ The initial runner supports a deliberately small set:
 - `exec-json`
 - `exec-jsonl`
 - `stdio-jsonrpc`
+- `native-sdk`
 - `file-json`
 - `file-jsonl`
 - `file-yaml`
@@ -533,6 +536,24 @@ Each primitive has:
 - typed failure behavior.
 
 There is no generic shell primitive.
+
+`native-sdk` is limited to audited first-party, read-only bridges for official
+SDKs that cannot be expressed through the other primitives. The initial use is
+GitHub Copilot session discovery. Adding or changing native bridge code
+requires a core release; its declarative fallback schemas remain independently
+updateable.
+
+Source revalidation modes are explicit:
+
+- `local-readonly`: core-mediated file, SQLite, PID-lock, and process evidence
+  that can be re-collected during offline apply;
+- `planning-only`: command, stdio JSON-RPC, and native SDK evidence that may be
+  collected for planning but is never executed during apply.
+
+The MVP has no cross-platform network sandbox for external executables.
+Therefore command, JSON-RPC, and native SDK evidence cannot by itself qualify
+a candidate as safe. An applicable adapter must also provide complete
+`local-readonly` evidence, or the candidate is review-only.
 
 Command-backed primitives are a distinct trust boundary. The invoked provider
 CLI is an external executable with the user's OS permissions, not a sandboxed
@@ -577,6 +598,7 @@ Example:
       "id": "app-server",
       "kind": "stdio-jsonrpc",
       "supportGrade": "supported-app-server",
+      "revalidationMode": "planning-only",
       "schema": "codex-thread-list-v2"
     }
   ],
@@ -760,11 +782,10 @@ Newer signed adapters are stored in a versioned local cache:
 ```text
 adapters/
   copilot/
-    1.0.0/
-    1.1.0/
-    current
-    previous
-  adapters.lock
+    versions/
+      1.0.0/
+      1.1.0/
+  active-state.json
 ```
 
 `treeclear adapters update`:
@@ -773,10 +794,10 @@ adapters/
    schedule;
 2. verifies the publisher, signature, digest, size, SPI, and compatibility;
 3. runs bundled probe and fixture checks;
-4. installs into a versioned temporary directory;
-5. atomically switches `current`;
-6. retains `previous`;
-7. updates `adapters.lock`.
+4. installs immutable version directories;
+5. constructs one complete active state containing every adapter's current
+   and previous version plus the signed index and lock;
+6. atomically replaces `active-state.json`.
 
 Cleanup commands never update adapters.
 
@@ -785,7 +806,8 @@ Cleanup commands never update adapters.
 If a newly activated adapter fails its health probe:
 
 - it is marked unhealthy;
-- Treeclear atomically restores `previous`;
+- Treeclear atomically writes a new active-state generation selecting the
+  previous version;
 - the failed version remains available for diagnostics;
 - affected candidates remain blocked until a healthy trusted adapter is
   active.
@@ -810,7 +832,8 @@ Apply accepts evidence from:
 
 - embedded adapters;
 - valid first-party signed adapters;
-- an exact user-pinned adapter digest explicitly trusted for apply.
+- an exact user-pinned adapter digest explicitly trusted for interactive
+  apply.
 
 Unsigned adapters are never accepted by unattended apply.
 
@@ -1005,6 +1028,17 @@ treeclear schedule remove
 Each mutating command clearly identifies its mutation scope and supports
 machine-readable results.
 
+The scheduler invokes one explicit entry point:
+
+```text
+treeclear schedule run --mode plan-only|apply-safe
+treeclear schedule run --job adapter-update
+```
+
+`plan-only` remains read-only. `apply-safe` creates a plan and applies only its
+already-safe actions through the normal apply engine. `adapter-update` runs as
+a separate job and process.
+
 ### Output
 
 - Human output uses tables and concise reason lists.
@@ -1087,11 +1121,16 @@ Default scheduled behavior:
 - do not update adapters;
 - do not apply cleanup.
 
+Installed jobs call `treeclear schedule run`, preserving the configured roots,
+mode, and private report directory. Cleanup and adapter-update jobs have
+separate platform identifiers and never share one process invocation.
+
 The 7-day inactivity threshold is necessary but never sufficient. Process,
 session, Git, trust, and recovery checks still apply regardless of age.
 
 Users may separately enable safe-only scheduled apply. Scheduled apply accepts
-only embedded, first-party signed, or explicitly pinned trusted adapters.
+only embedded or first-party signed adapters. Locally pinned custom adapters
+remain interactive-only.
 
 Adapter updates use a separate opt-in schedule and can never run in the same
 process as cleanup apply.
