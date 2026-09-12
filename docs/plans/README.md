@@ -6,7 +6,7 @@ independently testable delivery stages.
 
 Execute them in sequence:
 
-0. [Development Harness](000-development-harness.md)
+0. [Minimal Development Baseline](000-development-harness.md)
 1. [Safety Core](001-treeclear-core.md)
 2. [Agent Adapters](002-agent-adapters.md)
 3. [Adapter Lifecycle](003-adapter-lifecycle.md)

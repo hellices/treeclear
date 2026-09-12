@@ -17,6 +17,16 @@ import (
 	"time"
 )
 
+func TestRepositoryPreservesUnicodeWorktreePath(test *testing.T) {
+	repository := NewRepository(test)
+	repository.AddWorktree(test, "linked", "topic-plain")
+	linked := repository.AddWorktree(test, "linked\u00a0", "topic-unicode")
+
+	if branch := repository.Git(test, "-C", linked, "branch", "--show-current"); branch != "topic-unicode" {
+		test.Fatalf("worktree branch = %q, want topic-unicode", branch)
+	}
+}
+
 func TestRepositoryIsolatedFromHostGit(test *testing.T) {
 	victim := NewRepository(test)
 	host := test.TempDir()

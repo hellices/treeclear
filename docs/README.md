@@ -25,5 +25,5 @@ plugins belong in their standard configuration directories, such as
 
 - [Treeclear Architecture](architecture/2026-09-12-treeclear.md)
 - [Implementation Plans](plans/README.md)
-- [Development Harness Design](design/development-harness.md)
+- [Minimal Development Checks](design/development-harness.md)
 - [Development and Review Workflow](development.md)

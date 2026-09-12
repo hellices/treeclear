@@ -26,6 +26,9 @@ jobs:
       GOTOOLCHAIN: local
       GOWORK: 'off'
       GOFLAGS: -mod=readonly
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -37,7 +40,21 @@ jobs:
           go-version: '1.26.5'
           check-latest: false
           cache: false
-      - name: Verify active stage on native runner
-        run: go run ./tools/harness verify
+      - name: Check formatting
+        run: |
+          $unformatted = gofmt -l .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($unformatted) { throw "Run gofmt on: $unformatted" }
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+      - name: Build
+        run: go build ./...
       - name: Check source remains unchanged
-        run: git diff --exit-code
+        run: |
+          $changes = git status --porcelain
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($changes) { throw "Verification changed the source tree: $changes" }

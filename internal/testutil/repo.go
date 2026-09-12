@@ -189,7 +189,7 @@ func (repository *Repository) gitLocation(arguments []string) (string, string, [
 		if !found {
 			return "", "", nil, fmt.Errorf("invalid fixture gitfile: %q", gitDirectory)
 		}
-		gitDirectory = strings.TrimSpace(location)
+		gitDirectory = strings.TrimSuffix(strings.TrimSuffix(location, "\n"), "\r")
 		if !filepath.IsAbs(gitDirectory) {
 			gitDirectory = filepath.Join(directory, gitDirectory)
 		}

@@ -3,7 +3,7 @@
 - Status: Planned
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
-- Depends on: [000 Development Harness](000-development-harness.md)
+- Depends on: [000 Minimal Development Baseline](000-development-harness.md)
 
 Stage 000 supplies the module, development commands, and shared test fixtures.
 Reuse those files; Task 1 still owns the product CLI and dependencies, and
