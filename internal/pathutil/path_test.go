@@ -1,13 +1,16 @@
 package pathutil
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestCanonicalResolvesRelativePaths(test *testing.T) {
@@ -21,19 +24,37 @@ func TestCanonicalResolvesRelativePaths(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		test.Fatal(err)
-	}
-	relative, err := filepath.Rel(workingDirectory, directory)
-	if err != nil {
-		test.Fatal(err)
-	}
-	for _, input := range []string{directory, relative, directory + string(filepath.Separator) + "."} {
+	for _, input := range []string{directory, directory + string(filepath.Separator) + "."} {
 		actual, err := Canonical(input)
 		if err != nil || actual != expected {
 			test.Errorf("Canonical(%q) = %q, %v; want %q", input, actual, err, expected)
 		}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		test.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, executable, "-test.run=^TestCanonicalRelativePathHelper$")
+	command.Dir = root
+	command.Env = append(os.Environ(), "TREECLEAR_PATH_HELPER_INPUT="+name, "TREECLEAR_PATH_HELPER_EXPECTED="+expected)
+	if output, err := command.CombinedOutput(); err != nil {
+		test.Fatalf("relative-path subprocess: %v\n%s", err, output)
+	}
+}
+
+func TestCanonicalRelativePathHelper(test *testing.T) {
+	input := os.Getenv("TREECLEAR_PATH_HELPER_INPUT")
+	if input == "" {
+		return
+	}
+	if filepath.IsAbs(input) {
+		test.Fatalf("helper requires a relative path, got %q", input)
+	}
+	expected := os.Getenv("TREECLEAR_PATH_HELPER_EXPECTED")
+	if actual, err := Canonical(input); err != nil || actual != expected {
+		test.Fatalf("Canonical(%q) = %q, %v; want %q", input, actual, err, expected)
 	}
 }
 

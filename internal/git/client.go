@@ -34,6 +34,9 @@ func NewClient(runner execx.Runner) *Client {
 }
 
 func (client *Client) run(ctx context.Context, directory string, arguments ...string) (execx.Result, error) {
+	if directory == "" && !(len(arguments) == 1 && arguments[0] == "--version") {
+		return execx.Result{}, errors.New("Git working directory is required")
+	}
 	environment := execx.SanitizedEnvironment(os.Environ(), map[string]string{
 		"LC_ALL": "C", "LANG": "C", "GIT_OPTIONAL_LOCKS": "0",
 		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
@@ -87,6 +90,29 @@ func (client *Client) CommonGitDir(ctx context.Context, repository string) (stri
 	return client.gitDirectory(ctx, repository, "--path-format=absolute", "--git-common-dir")
 }
 
+func (client *Client) WorktreeRoot(ctx context.Context, directory string) (string, error) {
+	return client.gitDirectory(ctx, directory, "--path-format=absolute", "--show-toplevel")
+}
+
+func (client *Client) verifyWorktreeRoot(ctx context.Context, worktree string) error {
+	root, err := client.WorktreeRoot(ctx, worktree)
+	if err != nil {
+		return err
+	}
+	registered, err := os.Stat(worktree)
+	if err != nil {
+		return err
+	}
+	effective, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !registered.IsDir() || !effective.IsDir() || !os.SameFile(registered, effective) {
+		return fmt.Errorf("effective Git worktree %q differs from registered path %q", root, worktree)
+	}
+	return nil
+}
+
 func (client *Client) gitDirectory(ctx context.Context, repository string, arguments ...string) (string, error) {
 	result, err := client.run(ctx, repository, append([]string{"rev-parse"}, arguments...)...)
 	if err != nil {
@@ -118,7 +144,7 @@ func (client *Client) ListWorktrees(ctx context.Context, repository string) ([]d
 	worktrees := make([]domain.Worktree, 0, len(records))
 	for index, record := range records {
 		worktrees = append(worktrees, domain.Worktree{
-			Path: record.Path, RepositoryRoot: records[0].Path, CommonGitDir: commonDirectory,
+			Path: filepath.FromSlash(record.Path), RepositoryRoot: filepath.FromSlash(records[0].Path), CommonGitDir: commonDirectory,
 			Head: record.Head, Branch: record.Branch, Primary: index == 0,
 			Detached: record.Detached, Locked: record.Locked, LockReason: record.LockReason,
 			Prunable: record.Prunable,
@@ -141,8 +167,44 @@ func (client *Client) rejectExecutableFilters(ctx context.Context, directory str
 	return nil
 }
 
+func (client *Client) rejectUnsafeIndex(ctx context.Context, directory string) error {
+	result, err := client.run(ctx, directory, "ls-files", "--cached", "--stage", "-v", "-z", "--no-recurse-submodules")
+	if err != nil {
+		return err
+	}
+	remaining := string(result.Stdout)
+	for remaining != "" {
+		record, rest, terminated := strings.Cut(remaining, "\x00")
+		metadata, path, separated := strings.Cut(record, "\t")
+		fields := strings.Fields(metadata)
+		if !terminated || !separated || path == "" || len(fields) != 4 {
+			return errors.New("malformed Git index entry")
+		}
+		if fields[0] != "H" && fields[0] != "M" {
+			return errors.New("hidden or unsupported Git index flags prevent read-only collection")
+		}
+		if fields[1] == "160000" {
+			return errors.New("submodule entries prevent read-only collection until guarded submodule inspection is supported")
+		}
+		if fields[1] != "100644" && fields[1] != "100755" && fields[1] != "120000" {
+			return errors.New("unsupported Git index mode")
+		}
+		if _, err := hex.DecodeString(fields[2]); err != nil || (len(fields[2]) != 40 && len(fields[2]) != 64) {
+			return errors.New("invalid Git index object ID")
+		}
+		if fields[3] != "0" && fields[3] != "1" && fields[3] != "2" && fields[3] != "3" {
+			return errors.New("invalid Git index stage")
+		}
+		remaining = rest
+	}
+	return nil
+}
+
 func (client *Client) Status(ctx context.Context, worktree string) (domain.GitStatus, error) {
 	if err := client.rejectExecutableFilters(ctx, worktree); err != nil {
+		return domain.GitStatus{}, err
+	}
+	if err := client.rejectUnsafeIndex(ctx, worktree); err != nil {
 		return domain.GitStatus{}, err
 	}
 	result, err := client.run(ctx, worktree, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none")
@@ -156,6 +218,9 @@ func (client *Client) Diff(ctx context.Context, worktree string, staged bool) ([
 	if err := client.rejectExecutableFilters(ctx, worktree); err != nil {
 		return nil, err
 	}
+	if err := client.rejectUnsafeIndex(ctx, worktree); err != nil {
+		return nil, err
+	}
 	arguments := []string{"diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv"}
 	if staged {
 		arguments = append(arguments, "--cached")
@@ -165,6 +230,9 @@ func (client *Client) Diff(ctx context.Context, worktree string, staged bool) ([
 }
 
 func (client *Client) RemoveWorktree(ctx context.Context, repository, path string) error {
+	if path == "" {
+		return errors.New("worktree path is required")
+	}
 	_, err := client.run(ctx, repository, "worktree", "remove", "--", path)
 	return err
 }
@@ -180,9 +248,21 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 			worktree.CollectionErrors = append(worktree.CollectionErrors, failure.Error())
 		}
 	}
+	if repository == "" {
+		record("repository", errors.New("path is required"))
+	}
+	if worktree.Path == "" {
+		record("worktree", errors.New("path is required"))
+	}
+	if len(failures) != 0 {
+		return worktree, errors.Join(failures...)
+	}
+	if err := client.verifyWorktreeRoot(ctx, worktree.Path); err != nil {
+		worktree.PathSafe = false
+		record("worktree root", err)
+		return worktree, errors.Join(failures...)
+	}
 	var err error
-	worktree.Status, err = client.Status(ctx, worktree.Path)
-	record("status", err)
 	commonDirectory, err := client.CommonGitDir(ctx, repository)
 	record("common directory", err)
 	worktree.CommonGitDir = commonDirectory
@@ -199,6 +279,11 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 			record("administrative metadata", err)
 		}
 	}
+	if len(failures) != 0 {
+		return worktree, errors.Join(failures...)
+	}
+	worktree.Status, err = client.Status(ctx, worktree.Path)
+	record("status", err)
 	headResult, err := client.run(ctx, worktree.Path, "rev-parse", "--verify", "HEAD")
 	record("HEAD", err)
 	if err == nil {

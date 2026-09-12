@@ -48,6 +48,12 @@ func TestEvaluateDecisionTable(test *testing.T) {
 		{"unhealthy adapter", func(worktree *domain.Worktree, evidence *domain.EvidenceSet) {
 			evidence.Adapters = []domain.AdapterStatus{{Applicable: true}}
 		}, domain.Protected, "adapter_unhealthy"},
+		{"adapter with error", func(worktree *domain.Worktree, evidence *domain.EvidenceSet) {
+			evidence.Adapters = []domain.AdapterStatus{{Applicable: true, Healthy: true, Trusted: true, OfflineRevalidatable: true, BestGrade: domain.TrustSupportedAPI, Error: "collection failed"}}
+		}, domain.Protected, "adapter_unhealthy"},
+		{"non-applicable adapter error", func(worktree *domain.Worktree, evidence *domain.EvidenceSet) {
+			evidence.Adapters = []domain.AdapterStatus{{Error: "unrelated provider is unavailable"}}
+		}, domain.Safe, "safe"},
 		{"recent", func(worktree *domain.Worktree, evidence *domain.EvidenceSet) {
 			worktree.MetadataModifiedAt = testPolicy().Now
 		}, domain.Protected, "recent"},

@@ -87,7 +87,7 @@ func hasActiveAgent(evidence domain.EvidenceSet, now time.Time, threshold time.D
 
 func hasUnhealthyAdapter(evidence domain.EvidenceSet) bool {
 	for _, adapter := range evidence.Adapters {
-		if adapter.Applicable && !adapter.Healthy {
+		if adapter.Applicable && (!adapter.Healthy || adapter.Error != "") {
 			return true
 		}
 	}

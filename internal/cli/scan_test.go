@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/process"
+	"github.com/hellices/treeclear/internal/testutil"
 )
 
 type inventoryStub struct {
@@ -40,6 +42,9 @@ func (collector processStub) Collect(context.Context, []domain.Worktree) (proces
 func scanFixture(test *testing.T) (Dependencies, *inventoryStub) {
 	test.Helper()
 	root := test.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "user.toml"), []byte("roots = [\".\"]\n"), 0o600); err != nil {
+		test.Fatal(err)
+	}
 	now := time.Date(2026, time.September, 12, 12, 0, 0, 0, time.UTC)
 	inventory := &inventoryStub{worktrees: []domain.Worktree{{
 		Path: filepath.Join(root, "feature"), RepositoryRoot: root, Branch: "topic", PathSafe: true,
@@ -88,7 +93,36 @@ func TestScanUsesDurationOverride(test *testing.T) {
 		test.Fatalf("scan = %#v, error = %v", result, err)
 	}
 	if !reflect.DeepEqual(inventory.roots, []string{dependencies.WorkingDirectory}) {
-		test.Fatalf("default roots = %q", inventory.roots)
+		test.Fatalf("configured roots = %q", inventory.roots)
+	}
+}
+
+func TestScanDefaultsToContainingRepository(test *testing.T) {
+	dependencies, inventory := scanFixture(test)
+	if err := os.Remove(dependencies.UserConfigPath); err != nil {
+		test.Fatal(err)
+	}
+	repository := testutil.NewRepository(test)
+	dependencies.WorkingDirectory = filepath.Join(repository.Root, "subdirectory")
+	if err := os.Mkdir(dependencies.WorkingDirectory, 0o700); err != nil {
+		test.Fatal(err)
+	}
+	if _, _, err := runScan(test, dependencies); err != nil {
+		test.Fatal(err)
+	}
+	if !reflect.DeepEqual(inventory.roots, []string{repository.Root}) {
+		test.Fatalf("default roots = %q, want containing repository %q", inventory.roots, repository.Root)
+	}
+}
+
+func TestScanOutsideRepositoryDoesNotStartCollection(test *testing.T) {
+	dependencies, inventory := scanFixture(test)
+	if err := os.Remove(dependencies.UserConfigPath); err != nil {
+		test.Fatal(err)
+	}
+	result, _, err := runScan(test, dependencies)
+	if err == nil || !strings.Contains(err.Error(), "--root") || inventory.calls != 0 || len(result.Worktrees) != 0 {
+		test.Fatalf("unconfigured scan = %#v, error = %v, inventory calls = %d", result, err, inventory.calls)
 	}
 }
 

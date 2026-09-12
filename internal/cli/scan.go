@@ -93,7 +93,7 @@ func newScanCommand(dependencies Dependencies) *cobra.Command {
 			return scanErr
 		},
 	}
-	command.Flags().StringArrayVar(&roots, "root", nil, "Repository discovery root (repeatable; defaults to configured roots or cwd)")
+	command.Flags().StringArrayVar(&roots, "root", nil, "Repository discovery root (repeatable; defaults to configured roots or the containing repository)")
 	command.Flags().StringVar(&threshold, "inactivity-threshold", "", "Required inactivity, such as 24h or 7d (default configuration: 7d)")
 	command.Flags().StringVar(&format, "format", "human", "Output format: human or json")
 	return command
@@ -126,9 +126,6 @@ func scanConfiguration(dependencies Dependencies, overrides config.Overrides) (c
 	if err != nil {
 		return config.Config{}, dependencies, err
 	}
-	if len(configuration.Roots) == 0 {
-		configuration.Roots = []string{dependencies.WorkingDirectory}
-	}
 	for index, root := range configuration.Roots {
 		if root == "" {
 			return config.Config{}, dependencies, errors.New("configured roots must not be empty")
@@ -142,12 +139,21 @@ func scanConfiguration(dependencies Dependencies, overrides config.Overrides) (c
 
 func scan(ctx context.Context, dependencies Dependencies, configuration config.Config) (ScanResult, error) {
 	loader := dependencies.Inventory
-	if loader == nil {
-		client := git.NewClient(execx.OSRunner{})
-		client.BaseBranches = append([]string(nil), configuration.BaseBranches...)
+	client := git.NewClient(execx.OSRunner{})
+	client.BaseBranches = append([]string(nil), configuration.BaseBranches...)
+	if loader == nil || len(configuration.Roots) == 0 {
 		if err := client.CheckVersion(ctx); err != nil {
 			return ScanResult{}, err
 		}
+	}
+	if len(configuration.Roots) == 0 {
+		root, err := client.WorktreeRoot(ctx, dependencies.WorkingDirectory)
+		if err != nil {
+			return ScanResult{}, fmt.Errorf("no default repository scope; use --root <path> or configure roots to begin scanning: %w", err)
+		}
+		configuration.Roots = []string{root}
+	}
+	if loader == nil {
 		loader = inventory.Loader{
 			Git: client, DataDir: dependencies.DataDirectory,
 			CWD: func() (string, error) { return dependencies.WorkingDirectory, nil },

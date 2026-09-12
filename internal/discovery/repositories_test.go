@@ -113,6 +113,11 @@ func TestFinderSkipsMetadataCachesAndConfiguredDataDirectory(test *testing.T) {
 
 func TestFinderSkipsGitDirectoryCaseAlias(test *testing.T) {
 	repository := testutil.NewRepository(test)
+	client := git.NewClient(nil)
+	worktrees, err := client.ListWorktrees(context.Background(), repository.Root)
+	if err != nil {
+		test.Fatal(err)
+	}
 	marker := filepath.Join(repository.Root, ".git")
 	alias := filepath.Join(repository.Root, ".GIT")
 	if err := os.Rename(marker, alias); err != nil {
@@ -123,16 +128,43 @@ func TestFinderSkipsGitDirectoryCaseAlias(test *testing.T) {
 	} else if err != nil {
 		test.Fatal(err)
 	}
-	finder := Finder{ReadDir: func(path string) ([]os.DirEntry, error) {
-		if pathutil.Contains(alias, path) {
-			test.Errorf("discovery traversed case-aliased Git metadata: %q", path)
-			return nil, fs.ErrPermission
-		}
-		return os.ReadDir(path)
-	}}
+	finder := Finder{
+		Git: discoveryGit{GitClient: client, list: func(context.Context, string) ([]domain.Worktree, error) {
+			return worktrees, nil
+		}},
+		ReadDir: func(path string) ([]os.DirEntry, error) {
+			if pathutil.Contains(alias, path) {
+				test.Errorf("discovery traversed case-aliased Git metadata: %q", path)
+				return nil, fs.ErrPermission
+			}
+			return os.ReadDir(path)
+		},
+	}
 	found, failures := finder.Find(context.Background(), []string{repository.Root})
 	if len(found) != 1 || len(failures) != 0 {
 		test.Fatalf("case-aliased Git metadata was not excluded: %#v, %v", found, failures)
+	}
+}
+
+func TestFinderRejectsMetadataDirectoryAsPrimary(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	client := git.NewClient(nil)
+	worktrees, err := client.ListWorktrees(context.Background(), repository.Root)
+	if err != nil {
+		test.Fatal(err)
+	}
+	worktrees[0].Path = worktrees[0].CommonGitDir
+	worktrees[0].RepositoryRoot = worktrees[0].CommonGitDir
+	finder := Finder{Git: discoveryGit{GitClient: client, list: func(context.Context, string) ([]domain.Worktree, error) {
+		return worktrees, nil
+	}}}
+	found, failures := finder.Find(context.Background(), []string{repository.Root})
+	if len(found) != 0 || len(failures) != 1 {
+		test.Fatalf("accepted Git metadata as a primary worktree: %#v, %v", found, failures)
+	}
+	var pathError *fs.PathError
+	if !errors.As(failures[0], &pathError) || pathError.Path != repository.Root {
+		test.Fatalf("missing per-path primary identity error: %v", failures)
 	}
 }
 

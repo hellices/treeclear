@@ -17,8 +17,10 @@ go run ./cmd/treeclear scan --root /path/to/workspace --inactivity-threshold 14d
 ```
 
 `--root` is repeatable and preserves commas and spaces in paths. Without a
-root, scan uses configured roots or the invocation directory. `treeclear`
-without arguments shows help and performs no collection.
+root, scan uses configured roots or the containing Git repository. Outside
+a repository with no configured roots, it shows guidance and does not scan;
+use `--root .` for intentional recursive discovery. `treeclear` without
+arguments shows help and performs no collection.
 
 Scan discovers repositories and linked worktrees, inspects Git state, gathers
 process evidence, and prints `protected`, `review`, or `safe` with reasons.
@@ -45,10 +47,13 @@ inactivity_threshold = "14d"
 base_branches = ["main", "master"]
 ```
 
-Repository-local executable Git filters prevent read-only status collection
-and produce an unknown/protected result. Missing process permissions or
-unsupported OS inspection also remain unknown. Agent-provider evidence is
-deliberately absent in this preview.
+Repository-local executable Git filters, submodule index entries, and hidden
+index flags (`assume-unchanged` or `skip-worktree`) prevent read-only
+collection and produce an unknown/protected result. Submodule inspection is
+not yet supported; scan never clears index flags to inspect hidden changes.
+A Git worktree root that differs from its registered path is unsafe. Missing
+process permissions or unsupported OS inspection also remain unknown.
+Agent-provider evidence is deliberately absent in this preview.
 
 ## Development
 

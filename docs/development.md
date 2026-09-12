@@ -34,6 +34,18 @@ Native process smoke tests inspect only the current test process. A test
 requiring distinct case-sensitive names reports a skip on filesystems that
 cannot create them; cross-compilation does not replace native Windows tests.
 
+## Evidence boundaries
+
+Correlation and policy remain pure. Nonempty worktree and agent paths supplied
+to `correlate.Group` must already be canonical absolute identities. Inventory
+and process collection own filesystem normalization. Future adapter mapping
+must resolve aliases with `pathutil.Canonical` before correlation and retain
+unresolvable bindings as unknown evidence, not silently omit them. The current
+CLI supplies no agent-provider evidence.
+
+This preview conservatively protects every returned worktree when a scan is
+incomplete, even if an individual inspection failure can be localized.
+
 ## Delivery
 
 Follow the [implementation plans](plans/README.md) in order. Each stage, or

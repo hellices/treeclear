@@ -35,6 +35,47 @@ func TestClientRejectsOldGit(test *testing.T) {
 	}
 }
 
+func TestClientRejectsEmptyWorkingDirectory(test *testing.T) {
+	for _, arguments := range [][]string{
+		{"rev-parse", "--git-common-dir"},
+		{"worktree", "list", "--porcelain", "-z"},
+		{"status", "--porcelain=v2", "-z"},
+		{"diff", "--binary"},
+		{"worktree", "remove", "--", "target"},
+	} {
+		test.Run(strings.Join(arguments, " "), func(test *testing.T) {
+			calls := 0
+			client := NewClient(runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
+				calls++
+				return execx.Result{}, nil
+			}))
+			if _, err := client.run(context.Background(), "", arguments...); err == nil || calls != 0 {
+				test.Fatalf("empty directory invoked Git %d times, error = %v", calls, err)
+			}
+		})
+	}
+}
+
+func TestClientInspectionRejectsMissingLocationsBeforeRunningGit(test *testing.T) {
+	root := test.TempDir()
+	for _, locations := range []struct {
+		repository string
+		worktree   string
+	}{{"", root}, {root, ""}, {"", ""}} {
+		calls := 0
+		client := NewClient(runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
+			calls++
+			return execx.Result{}, nil
+		}))
+		actual, err := client.InspectWorktree(context.Background(), locations.repository, domain.Worktree{
+			Path: locations.worktree, GitStateKnown: true,
+		})
+		if err == nil || calls != 0 || actual.GitStateKnown || len(actual.CollectionErrors) == 0 {
+			test.Fatalf("locations = %#v: %d Git calls, inspection = %#v, error = %v", locations, calls, actual, err)
+		}
+	}
+}
+
 func TestClientRemovalNeverForcesOrDeletesBranches(test *testing.T) {
 	var actual execx.Request
 	client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -47,6 +88,17 @@ func TestClientRemovalNeverForcesOrDeletesBranches(test *testing.T) {
 	}
 	if actual.Name != "git" || !reflect.DeepEqual(actual.Args, []string{"worktree", "remove", "--", path}) {
 		test.Fatalf("removal request = %#v", actual)
+	}
+}
+
+func TestClientRemovalRejectsEmptyTarget(test *testing.T) {
+	calls := 0
+	client := NewClient(runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
+		calls++
+		return execx.Result{}, nil
+	}))
+	if err := client.RemoveWorktree(context.Background(), test.TempDir(), ""); err == nil || calls != 0 {
+		test.Fatalf("empty target invoked Git %d times, error = %v", calls, err)
 	}
 }
 
@@ -77,9 +129,15 @@ func TestClientInventoriesRealLinkedWorktree(test *testing.T) {
 	}
 	var candidate domain.Worktree
 	for _, worktree := range worktrees {
+		if worktree.Path != filepath.FromSlash(worktree.Path) || worktree.RepositoryRoot != repository.Root {
+			test.Fatalf("worktree locations are not native paths: %#v", worktree)
+		}
 		if worktree.Path == linked {
 			candidate = worktree
 		}
+	}
+	if candidate.Path == "" {
+		test.Fatalf("linked worktree %q was not found in %#v", linked, worktrees)
 	}
 	actual, err := client.InspectWorktree(context.Background(), repository.Root, candidate)
 	if err != nil || !actual.GitStateKnown || !actual.Status.Clean() || !actual.Recoverable {
@@ -113,6 +171,39 @@ func TestClientRefusesExecutableFilters(test *testing.T) {
 	client := NewClient(execx.OSRunner{})
 	if _, err := client.Status(context.Background(), repository.Root); err == nil || !strings.Contains(err.Error(), "filter") {
 		test.Fatalf("executable filter was not rejected: %v", err)
+	}
+}
+
+func TestClientRejectsUnsafeIndexEntries(test *testing.T) {
+	object := strings.Repeat("a", 40)
+	for _, entry := range []struct {
+		name    string
+		output  string
+		allowed bool
+	}{
+		{"empty", "", true},
+		{"ordinary", "H 100644 " + object + " 0\tspace\nname\twith-tab\x00", true},
+		{"unmerged", "M 100644 " + object + " 1\tfile\x00", true},
+		{"assume-unchanged", "h 100644 " + object + " 0\tfile\x00", false},
+		{"skip-worktree", "S 100644 " + object + " 0\tfile\x00", false},
+		{"both-flags", "s 100644 " + object + " 0\tfile\x00", false},
+		{"submodule", "H 160000 " + object + " 0\tmodule\x00", false},
+		{"missing-terminator", "H 100644 " + object + " 0\tfile", false},
+		{"missing-path", "H 100644 " + object + " 0\t\x00", false},
+		{"unknown-tag", "X 100644 " + object + " 0\tfile\x00", false},
+		{"malformed-record", "not an index entry\x00", false},
+	} {
+		test.Run(entry.name, func(test *testing.T) {
+			client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+				if request.Args[0] == "ls-files" {
+					return execx.Result{Stdout: []byte(entry.output)}, nil
+				}
+				return execx.Result{}, nil
+			}))
+			if _, err := client.Status(context.Background(), test.TempDir()); (err == nil) != entry.allowed {
+				test.Fatalf("allowed = %t, status error = %v", entry.allowed, err)
+			}
+		})
 	}
 }
 
