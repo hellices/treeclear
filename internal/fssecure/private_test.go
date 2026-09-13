@@ -443,21 +443,31 @@ func TestReadPrivateFileRejectsSubstitutedSymlinks(test *testing.T) {
 	writePrivateFixture(test, original, []byte("allowed"))
 	writePrivateFixture(test, target, []byte("forbidden symlink target"))
 	makeSymlinkFixture(test, target, path)
-	stop := make(chan struct{})
+	if contents, err := ReadPrivateFile(target, 32); err != nil || string(contents) != "forbidden symlink target" {
+		test.Fatalf("symlink target is not a readable private fixture: %q, %v", contents, err)
+	}
+	var reader sync.Mutex
+	replaceEntry := func() error {
+		firstErr := os.Rename(next, path)
+		if firstErr == nil {
+			return nil
+		}
+		reader.Lock()
+		defer reader.Unlock()
+		if err := os.Rename(next, path); err != nil {
+			return errors.Join(firstErr, err)
+		}
+		test.Logf("fixture rename succeeded after reader closed: %v", firstErr)
+		return nil
+	}
 	finished := make(chan error, 1)
 	go func() {
-		for {
-			select {
-			case <-stop:
-				finished <- nil
-				return
-			default:
-			}
+		for range 300 {
 			if err := os.Link(original, next); err != nil {
 				finished <- err
 				return
 			}
-			if err := os.Rename(next, path); err != nil {
+			if err := replaceEntry(); err != nil {
 				finished <- err
 				return
 			}
@@ -465,22 +475,27 @@ func TestReadPrivateFileRejectsSubstitutedSymlinks(test *testing.T) {
 				finished <- err
 				return
 			}
-			if err := os.Rename(next, path); err != nil {
+			if err := replaceEntry(); err != nil {
 				finished <- err
 				return
 			}
 		}
+		finished <- nil
 	}()
 	for range 300 {
+		reader.Lock()
 		contents, err := ReadPrivateFile(path, 32)
+		reader.Unlock()
 		if err == nil && string(contents) != "allowed" || err != nil && contents != nil {
 			test.Errorf("substituted ReadPrivateFile = %q, %v", contents, err)
 			break
 		}
 	}
-	close(stop)
 	if err := <-finished; err != nil {
 		test.Fatal(err)
+	}
+	if contents, err := ReadPrivateFile(path, 32); err == nil || contents != nil {
+		test.Fatalf("final symlink ReadPrivateFile = %q, %v; want nil and error", contents, err)
 	}
 }
 

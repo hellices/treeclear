@@ -71,7 +71,7 @@ func TestStoreRoundTripByIDAndPath(test *testing.T) {
 func TestStoreRejectsExpiredPlan(test *testing.T) {
 	value := storedPlanFixture()
 	clock := testutil.NewClock(value.GeneratedAt)
-	store := NewStore(test.TempDir(), clock.Now, bytes.Repeat([]byte{0x42}, 32))
+	store := NewStore(filepath.Join(test.TempDir(), "state"), clock.Now, bytes.Repeat([]byte{0x42}, 32))
 	path := saveFixture(test, store, value)
 	clock.Advance(15*time.Minute - time.Nanosecond)
 	if _, err := store.Load(context.Background(), path); err != nil {
@@ -100,7 +100,7 @@ func TestStoreAuthenticatesBeforeMetadataValidation(test *testing.T) {
 			value := storedPlanFixture()
 			clock := testutil.NewClock(value.GeneratedAt)
 			key := bytes.Repeat([]byte{0x42}, 32)
-			store := NewStore(test.TempDir(), clock.Now, key)
+			store := NewStore(filepath.Join(test.TempDir(), "state"), clock.Now, key)
 			path := saveFixture(test, store, value)
 			contents, err := os.ReadFile(path)
 			if err != nil {
@@ -139,7 +139,7 @@ func TestStoreRejectsTamperedAction(test *testing.T) {
 	value := storedPlanFixture()
 	value.Candidates[0].Action = "none"
 	value.Candidates[0].Decision.Classification = domain.Protected
-	store := NewStore(test.TempDir(), func() time.Time { return value.GeneratedAt }, bytes.Repeat([]byte{0x42}, 32))
+	store := NewStore(filepath.Join(test.TempDir(), "state"), func() time.Time { return value.GeneratedAt }, bytes.Repeat([]byte{0x42}, 32))
 	path := saveFixture(test, store, value)
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestStoreRejectsTamperedAction(test *testing.T) {
 
 func TestStorePlansAreImmutable(test *testing.T) {
 	value := storedPlanFixture()
-	store := NewStore(test.TempDir(), func() time.Time { return value.GeneratedAt }, bytes.Repeat([]byte{0x42}, 32))
+	store := NewStore(filepath.Join(test.TempDir(), "state"), func() time.Time { return value.GeneratedAt }, bytes.Repeat([]byte{0x42}, 32))
 	path := saveFixture(test, store, value)
 	before, err := os.ReadFile(path)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestStorePlansAreImmutable(test *testing.T) {
 
 func TestStorePersistsAndReusesLocalKey(test *testing.T) {
 	value := storedPlanFixture()
-	root := test.TempDir()
+	root := filepath.Join(test.TempDir(), "state")
 	clock := testutil.NewClock(value.GeneratedAt)
 	path := saveFixture(test, NewStore(root, clock.Now, nil), value)
 	keyPath := filepath.Join(root, "integrity.key")
@@ -197,7 +197,7 @@ func TestStorePersistsAndReusesLocalKey(test *testing.T) {
 func TestStoreInjectedKeyIsCopied(test *testing.T) {
 	value := storedPlanFixture()
 	key := bytes.Repeat([]byte{0x42}, 32)
-	store := NewStore(test.TempDir(), func() time.Time { return value.GeneratedAt }, key)
+	store := NewStore(filepath.Join(test.TempDir(), "state"), func() time.Time { return value.GeneratedAt }, key)
 	clear(key)
 	path := saveFixture(test, store, value)
 	contents, err := os.ReadFile(path)
@@ -213,12 +213,12 @@ func TestStoreExternalPlanUsesLocalKey(test *testing.T) {
 	value := storedPlanFixture()
 	clock := testutil.NewClock(value.GeneratedAt)
 	key := bytes.Repeat([]byte{0x42}, 32)
-	path := saveFixture(test, NewStore(test.TempDir(), clock.Now, key), value)
-	matching := NewStore(test.TempDir(), clock.Now, key)
+	path := saveFixture(test, NewStore(filepath.Join(test.TempDir(), "state"), clock.Now, key), value)
+	matching := NewStore(filepath.Join(test.TempDir(), "state"), clock.Now, key)
 	if _, err := matching.Load(context.Background(), path); err != nil {
 		test.Fatalf("external plan from same installation rejected: %v", err)
 	}
-	foreign := NewStore(test.TempDir(), clock.Now, bytes.Repeat([]byte{0x24}, 32))
+	foreign := NewStore(filepath.Join(test.TempDir(), "state"), clock.Now, bytes.Repeat([]byte{0x24}, 32))
 	if _, err := foreign.Load(context.Background(), path); !errors.Is(err, ErrPlanIntegrity) {
 		test.Fatalf("external plan from foreign installation accepted: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestStoreRejectsCorruptKeyWithoutReplacingIt(test *testing.T) {
 	for _, size := range []int{0, 1, 31, 33} {
 		test.Run(fmt.Sprint(size), func(test *testing.T) {
 			value := storedPlanFixture()
-			root := test.TempDir()
+			root := filepath.Join(test.TempDir(), "state")
 			store := NewStore(root, func() time.Time { return value.GeneratedAt }, nil)
 			path := saveFixture(test, store, value)
 			keyPath := filepath.Join(root, "integrity.key")
@@ -356,7 +356,7 @@ func TestStoreRejectsCorruptKeyWithoutReplacingIt(test *testing.T) {
 
 func TestStoreLoadNeverRegeneratesMissingKey(test *testing.T) {
 	value := storedPlanFixture()
-	root := test.TempDir()
+	root := filepath.Join(test.TempDir(), "state")
 	store := NewStore(root, func() time.Time { return value.GeneratedAt }, nil)
 	path := saveFixture(test, store, value)
 	keyPath := filepath.Join(root, "integrity.key")
@@ -374,7 +374,7 @@ func TestStoreLoadNeverRegeneratesMissingKey(test *testing.T) {
 func TestStoreConcurrentInitializationAndPublication(test *testing.T) {
 	for _, sameID := range []bool{false, true} {
 		test.Run(fmt.Sprint(sameID), func(test *testing.T) {
-			root := test.TempDir()
+			root := filepath.Join(test.TempDir(), "state")
 			stamp := storedPlanFixture().GeneratedAt
 			const workers = 12
 			results := make(chan error, workers)
@@ -421,7 +421,7 @@ func TestStoreConcurrentInitializationAndPublication(test *testing.T) {
 func TestStoreRejectsOversizedLoadAndIDMismatch(test *testing.T) {
 	value := storedPlanFixture()
 	key := bytes.Repeat([]byte{0x42}, 32)
-	store := NewStore(test.TempDir(), func() time.Time { return value.GeneratedAt }, key)
+	store := NewStore(filepath.Join(test.TempDir(), "state"), func() time.Time { return value.GeneratedAt }, key)
 	path := saveFixture(test, store, value)
 	changed := value
 	changed.ID = "plan_different"
