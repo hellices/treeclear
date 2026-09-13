@@ -15,6 +15,9 @@ gofmt -l .
 commands directly in PowerShell. CI runs both native macOS and Windows tests.
 For a quick iteration, use `go test -count=1 ./internal/<package>`.
 
+`make build` writes the CLI into `bin/`; `make build VERSION=v0.0.0-test`
+sets the version string. Without Make, use `go build -o bin/ ./cmd/treeclear`.
+
 ## Test isolation
 
 `internal/testutil` provides real temporary Git repositories, a controllable
@@ -24,6 +27,47 @@ configuration, hooks, credentials, and home directories from the developer.
 path operands inside temporary fixtures. It is not a Git command sandbox.
 Use synthetic provider records and injected failures; never scan or remove
 real user worktrees or sessions in tests.
+
+The read-only CLI integration tests use those repositories plus synthetic
+process sources. Binary help/version tests run without Git on the child PATH.
+Native process smoke tests inspect only the current test process. A test
+requiring distinct case-sensitive names reports a skip on filesystems that
+cannot create them; cross-compilation does not replace native Windows tests.
+
+## Evidence boundaries
+
+Correlation and policy remain pure. Nonempty worktree and agent paths supplied
+to `correlate.Group` must already be canonical absolute identities. Inventory
+and process collection own filesystem normalization. Future adapter mapping
+must resolve aliases with `pathutil.Canonical` before correlation and retain
+unresolvable bindings as unknown evidence, not silently omit them. The current
+CLI supplies no agent-provider evidence.
+
+This preview conservatively protects every returned worktree when a scan is
+incomplete, even if an individual inspection failure can be localized.
+Scan-wide failures are retained as evidence warnings without changing the
+collector's process-enumeration completeness. Correlation preserves the
+collector's global unknown failure record, adding a fallback only when missing.
+
+Byte estimates exclude the root Git marker and its metadata tree. Marker aliases
+are matched by filesystem identity, not case spelling alone. Nested Git markers
+still make the affected worktree unknown and unsafe.
+
+Discovery also excludes filesystem-identical case aliases of `.git`,
+`node_modules`, `.cache`, and `target`, including explicit roots beneath them.
+Distinct case-sensitive directory names are not aliases.
+
+Missing or unresolvable administrative identities and administrative directories
+outside the repository's common Git directory invalidate path safety.
+Administrative hashing accepts at most 4,096 enumerated entries (including the
+root and skipped directories) and 16 MiB of selected file contents. Index hashing
+has its own 16 MiB limit. Both hashes share a 30-second context deadline;
+cancellation is checked between bounded directory batches and file reads.
+Synchronous operating-system filesystem calls cannot be forcibly interrupted.
+Any limit, cancellation, or collection error leaves Git state unknown.
+
+Agent evidence cannot establish inactivity when both `createdAt` and `updatedAt`
+are absent; observation time is not activity time.
 
 ## Delivery
 

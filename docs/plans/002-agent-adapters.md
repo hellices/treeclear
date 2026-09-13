@@ -393,6 +393,15 @@ func TestMapperNeverCopiesSummaryOrPrompt(t *testing.T) {
 Test missing required fields, invalid timestamps, status enum mapping, path
 normalization, stable evidence ordering, and fingerprint changes.
 
+Before enabling provider evidence, add mapping and Task 6 collector integration
+regressions for active and unknown records using symlink aliases, native Windows
+junctions and case variants, and unresolvable or conflicting path bindings.
+Resolve nonempty paths with Plan 001 `pathutil.Canonical` before `correlate.Group`;
+failed bindings must retain unknown evidence for every candidate whose relevance
+cannot be excluded, not silently discard records. Keep filesystem access in
+mapping/collection, not in the pure correlator. These remain pending Plan 002
+requirements; the read-only Plan 001 slice supplies no agent-provider evidence.
+
 - [ ] **Step 2: Run tests and verify they fail**
 
 Run:
