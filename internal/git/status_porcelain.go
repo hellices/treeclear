@@ -45,8 +45,9 @@ func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
 			if record[0] == 'u' {
 				modeEnd, objectIDEnd = 7, 10
 			}
-			for _, mode := range fields[3:modeEnd] {
-				if !validPorcelainMode(mode) {
+			for fieldIndex := 3; fieldIndex < modeEnd; fieldIndex++ {
+				mode := fields[fieldIndex]
+				if !validPorcelainMode(mode, fieldIndex == modeEnd-1) {
 					return domain.GitStatus{}, fmt.Errorf("invalid Git status mode %q", mode)
 				}
 			}

@@ -2094,7 +2094,12 @@ stdout on failure while preserving successful staged/unstaged binary patches.
 
 Keep shell-free argv, sanitized environment, bounded output and timeout,
 offline reads, executable-filter and unsafe-index rejection, safe diff flags,
-and primary/bare inventory rules. Validate status mode/object-ID metadata and
+and primary/bare inventory rules. An expected quiet exit-one from the filter
+lookup or detached-HEAD lookup must have empty output and a matching native
+process exit or explicit status reported without a runner error. Transport,
+wait-delay, joined, unknown or conflicting failures remain errors; an exit
+code alone must not authorize continuing collection.
+Validate status mode/object-ID metadata and
 worktree HEAD object-ID and supported short-branch syntax before exposing
 parsed/raw results. Unknown or malformed record forms fail closed. Preserve
 legitimate SHA-1/SHA-256 widths,
@@ -2105,7 +2110,8 @@ Mode fields accept canonical Git encodings; object IDs accept ASCII hex with a
 consistent width within each status record. Rename scores use canonical decimal
 0–100 and must agree with the record's rename/copy status. Known ordinary `DA`
 and `DD`, worktree-side renames/copies, and absent-stage modes remain supported.
-Worktree mode `040000` also remains supported: native macOS Git can emit it for
+Only the final worktree-side mode field may contain `040000`; stored HEAD,
+index and unmerged-stage mode fields reject it. Native macOS Git can emit it for
 an accessible embedded repository replacing an indexed regular file when an ACL
 grants access despite zero POSIX permission bits. It appears in both ordinary
 and unmerged records without a sparse index. This syntactic compatibility does
@@ -2125,6 +2131,9 @@ value as a universally exact raw oracle.
 Native temporary fixtures cover SHA-1 and SHA-256 repositories, staged/unstaged
 binary patches, rename source paths, unmerged stage metadata, unborn/intent-to-add
 state and unchanged index bytes. Pure fuzz tests exercise both porcelain parsers.
+The unmerged fixture table names each conflict code and its stage-presence mask
+explicitly. This clarifies the already-correct mapping; it does not change the
+effective stage combinations previously tested.
 
 - [x] Write failing raw-byte, failure-output and malformed-protocol regressions.
 - [x] Implement shared guarded reads and the relevant parser checks.
@@ -2133,6 +2142,8 @@ state and unchanged index bytes. Pure fuzz tests exercise both porcelain parsers
   implementation head `64a4f84` (CI run `34776255641`).
 - [x] Close the review follow-up on unsupported porcelain branch names using
   the shared snapshot-supported profile and raw-boundary regressions.
+- [x] Reproduce and correct exit-one execution-error handling and misplaced
+  directory-mode acceptance, preserving native quiet exits and worktree modes.
 - [ ] Repeat independent review until clean, verify the final revised head on
   native macOS/Windows CI, then merge and verify the merge commit.
 

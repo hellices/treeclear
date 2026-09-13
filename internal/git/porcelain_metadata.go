@@ -12,10 +12,12 @@ func validPorcelainObjectID(objectID string) bool {
 	return true
 }
 
-func validPorcelainMode(mode string) bool {
+func validPorcelainMode(mode string, isWorktree bool) bool {
 	switch mode {
-	case "000000", "040000", "100644", "100755", "120000", "160000":
+	case "000000", "100644", "100755", "120000", "160000":
 		return true
+	case "040000":
+		return isWorktree
 	default:
 		return false
 	}

@@ -58,7 +58,7 @@ func (client *Client) run(ctx context.Context, directory string, arguments ...st
 		Timeout: gitReadTimeout, MaxBytes: maxGitBytes,
 	})
 	if err == nil && result.ExitCode != 0 {
-		err = fmt.Errorf("exit status %d", result.ExitCode)
+		err = commandExitStatus(result.ExitCode)
 	}
 	if err != nil {
 		diagnostic := result.Stderr
@@ -165,7 +165,7 @@ func (client *Client) ListWorktreesRaw(ctx context.Context, repository string) (
 
 func (client *Client) rejectExecutableFilters(ctx context.Context, directory string) error {
 	result, err := client.run(ctx, directory, "config", "--null", "--get-regexp", `^filter\..*\.(clean|smudge|process)$`)
-	if err != nil && result.ExitCode == 1 && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, execx.ErrOutputLimit) {
+	if isQuietCommandExit(result, err, 1) {
 		return nil
 	}
 	if err != nil {
@@ -328,7 +328,7 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 		worktree.Head = head
 	}
 	branchResult, branchErr := client.run(ctx, worktree.Path, "symbolic-ref", "--quiet", "HEAD")
-	if !(worktree.Detached && branchResult.ExitCode == 1) {
+	if !(worktree.Detached && isQuietCommandExit(branchResult, branchErr, 1)) {
 		record("branch", branchErr)
 		if branchErr == nil {
 			branch, valid := strings.CutPrefix(outputLine(branchResult.Stdout), "refs/heads/")

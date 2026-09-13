@@ -97,6 +97,44 @@ func TestParseStatusRejectsMalformedMetadata(test *testing.T) {
 	}
 }
 
+func TestParseStatusValidatesDirectoryModeRoles(test *testing.T) {
+	for _, width := range []int{40, 64} {
+		objectID := strings.Repeat("a", width)
+		for _, format := range []struct {
+			name      string
+			fields    []string
+			modeRoles []string
+			suffix    string
+			want      domain.GitStatus
+		}{
+			{"ordinary", []string{"1", ".T", "N...", "100644", "100644", "100644", objectID, objectID, "name"}, []string{"head", "index", "worktree"}, "\x00", domain.GitStatus{Unstaged: 1}},
+			{"rename", []string{"2", "RT", "N...", "100644", "100644", "100644", objectID, objectID, "R100", "name"}, []string{"head", "index", "worktree"}, "\x00old name\x00", domain.GitStatus{Staged: 1, Unstaged: 1}},
+			{"copy", []string{"2", "CT", "N...", "100644", "100644", "100644", objectID, objectID, "C100", "name"}, []string{"head", "index", "worktree"}, "\x00old name\x00", domain.GitStatus{Staged: 1, Unstaged: 1}},
+			{"unmerged", []string{"u", "UU", "N...", "100644", "100644", "100644", "100644", objectID, objectID, objectID, "name"}, []string{"stage-1", "stage-2", "stage-3", "worktree"}, "\x00", domain.GitStatus{Unmerged: 1}},
+		} {
+			for modeOffset, role := range format.modeRoles {
+				test.Run(fmt.Sprintf("object-width-%d/%s/%s", width, format.name, role), func(test *testing.T) {
+					fields := append([]string(nil), format.fields...)
+					fields[3+modeOffset] = "040000"
+					input := "? earlier\x00" + strings.Join(fields, " ") + format.suffix
+					actual, err := parseStatusPorcelainZ([]byte(input))
+					if role != "worktree" {
+						if err == nil || actual != (domain.GitStatus{}) {
+							test.Fatalf("directory mode in %s returned %#v, error = %v", role, actual, err)
+						}
+						return
+					}
+					want := format.want
+					want.Untracked++
+					if err != nil || actual != want {
+						test.Fatalf("worktree directory mode returned %#v, want %#v, error = %v", actual, want, err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestParseStatusRejectsMalformedRecordGrammar(test *testing.T) {
 	objectID := strings.Repeat("a", 40)
 	metadata := "N... 100644 100644 100644 " + objectID + " " + objectID
@@ -204,15 +242,23 @@ func TestParseStatusAcceptsValidMetadata(test *testing.T) {
 
 func TestParseStatusAcceptsUnmergedStages(test *testing.T) {
 	for _, width := range []int{40, 64} {
-		for mask, code := range []string{"", "DD", "AU", "UD", "UA", "DU", "AA", "UU"} {
-			if mask == 0 {
-				continue
-			}
-			test.Run(fmt.Sprintf("object-width-%d/%s", width, code), func(test *testing.T) {
+		for _, entry := range []struct {
+			code string
+			mask int
+		}{
+			{"DD", 1},
+			{"AU", 2},
+			{"UD", 3},
+			{"UA", 4},
+			{"DU", 5},
+			{"AA", 6},
+			{"UU", 7},
+		} {
+			test.Run(fmt.Sprintf("object-width-%d/%s", width, entry.code), func(test *testing.T) {
 				zeroID := strings.Repeat("0", width)
-				fields := []string{"u", code, "N...", "000000", "000000", "000000", "100644", zeroID, zeroID, zeroID, "conflict"}
+				fields := []string{"u", entry.code, "N...", "000000", "000000", "000000", "100644", zeroID, zeroID, zeroID, "conflict"}
 				for stage := 0; stage < 3; stage++ {
-					if mask&(1<<stage) != 0 {
+					if entry.mask&(1<<stage) != 0 {
 						fields[3+stage] = "100644"
 						fields[7+stage] = strings.Repeat("a", width)
 					}

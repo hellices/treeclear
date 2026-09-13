@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -187,6 +188,10 @@ func TestClientRawReadsPreserveFilterAndIndexGuards(test *testing.T) {
 			{"filter canceled exit one", "config", execx.Result{ExitCode: 1}, context.Canceled},
 			{"filter deadline exit one", "config", execx.Result{ExitCode: 1}, context.DeadlineExceeded},
 			{"filter output limit exit one", "config", execx.Result{ExitCode: 1}, execx.ErrOutputLimit},
+			{"filter transport exit one", "config", execx.Result{ExitCode: 1}, errors.New("synthetic transport failure")},
+			{"filter wait delay exit one", "config", execx.Result{ExitCode: 1}, exec.ErrWaitDelay},
+			{"filter conflicting stdout", "config", execx.Result{ExitCode: 1, Stdout: []byte("filter.tripwire.clean\nnever-run-this\x00")}, nil},
+			{"filter diagnostic exit one", "config", execx.Result{ExitCode: 1, Stderr: []byte("synthetic configuration warning")}, nil},
 			{"skip worktree", "ls-files", execx.Result{Stdout: []byte("S 100644 " + head + " 0\tfile\x00")}, nil},
 			{"assume unchanged", "ls-files", execx.Result{Stdout: []byte("h 100644 " + head + " 0\tfile\x00")}, nil},
 			{"submodule", "ls-files", execx.Result{Stdout: []byte("H 160000 " + head + " 0\tmodule\x00")}, nil},
