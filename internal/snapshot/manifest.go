@@ -156,7 +156,7 @@ func validLowerHex(value string, length int) bool {
 }
 
 func validBranch(value string) bool {
-	if value == "" || len(value) > 1024 || !utf8.ValidString(value) || value == "HEAD" || value == "@" || strings.HasPrefix(value, "-") || strings.HasSuffix(value, ".") || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, `~^:?*[\`) {
+	if value == "" || len(value) > 1024 || !utf8.ValidString(value) || value == "HEAD" || strings.HasPrefix(value, "-") || strings.HasSuffix(value, ".") || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, `~^:?*[\`) {
 		return false
 	}
 	for _, character := range value {

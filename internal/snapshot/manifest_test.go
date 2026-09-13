@@ -60,11 +60,20 @@ func TestManifestCanonicalRoundTripPreservesDiagnosticBytes(test *testing.T) {
 }
 
 func TestManifestAcceptsBranchAndDetachedIdentities(test *testing.T) {
-	for _, branch := range []string{"topic", "release/topic", "한글-topic"} {
+	for _, branch := range []string{"topic", "release/topic", "한글-topic", "@"} {
 		value := manifestFixture()
 		value.Branch = branch
+		value.AdministrativeEntries[1].Data = []byte("ref: refs/heads/" + branch + "\n")
 		if err := ValidateManifest(value); err != nil {
 			test.Errorf("branch %q: %v", branch, err)
+		}
+		contents, err := EncodeManifest(value)
+		if err != nil {
+			test.Fatal(err)
+		}
+		loaded, err := DecodeManifest(contents)
+		if err != nil || loaded.Branch != branch {
+			test.Fatalf("branch %q did not round trip: %q, %v", branch, loaded.Branch, err)
 		}
 	}
 	value := manifestFixture()
@@ -149,7 +158,7 @@ func TestManifestRejectsInvalidIdentities(test *testing.T) {
 			}})
 		}
 	}
-	for _, branch := range []string{"HEAD", "-topic", "@", ".topic", "topic..other", "topic.lock", "topic//other", "topic/", "topic.", "topic@{1}", "topic~1", "topic^", "topic:other", "topic?", "topic*", "topic[", `topic\other`, "topic name", "topic\x7f", "topic/.hidden", "topic/other.lock", "topic\xff"} {
+	for _, branch := range []string{"HEAD", "-topic", ".topic", "topic..other", "topic.lock", "topic//other", "topic/", "topic.", "topic@{1}", "topic~1", "topic^", "topic:other", "topic?", "topic*", "topic[", `topic\other`, "topic name", "topic\x7f", "topic/.hidden", "topic/other.lock", "topic\xff"} {
 		cases = append(cases, struct {
 			name   string
 			change func(*Manifest)
