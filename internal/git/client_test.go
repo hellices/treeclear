@@ -77,16 +77,21 @@ func TestClientInspectionRejectsMissingLocationsBeforeRunningGit(test *testing.T
 }
 
 func TestClientRemovalNeverForcesOrDeletesBranches(test *testing.T) {
-	var actual execx.Request
+	var requests []execx.Request
 	client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
-		actual = request
+		requests = append(requests, request)
 		return execx.Result{}, nil
 	}))
+	repository := test.TempDir()
 	path := filepath.Join(test.TempDir(), "--force; not a command")
-	if err := client.RemoveWorktree(context.Background(), test.TempDir(), path); err != nil {
+	if err := client.RemoveWorktree(context.Background(), repository, path); err != nil {
 		test.Fatal(err)
 	}
-	if actual.Name != "git" || !reflect.DeepEqual(actual.Args, []string{"worktree", "remove", "--", path}) {
+	if len(requests) != 1 {
+		test.Fatalf("removal issued %d Git requests, want exactly one: %#v", len(requests), requests)
+	}
+	actual := requests[0]
+	if actual.Directory != repository || actual.Name != "git" || !reflect.DeepEqual(actual.Args, []string{"worktree", "remove", "--", path}) {
 		test.Fatalf("removal request = %#v", actual)
 	}
 }

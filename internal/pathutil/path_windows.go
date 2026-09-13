@@ -75,7 +75,7 @@ func validateWindowsComponent(component string, extended bool) error {
 		return fmt.Errorf("reserved Windows path component %q", component)
 	}
 	if strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT") {
-		suffix := strings.TrimPrefix(strings.TrimPrefix(base, "COM"), "LPT")
+		suffix := base[3:]
 		if len(suffix) == 1 && suffix[0] >= '1' && suffix[0] <= '9' || suffix == "¹" || suffix == "²" || suffix == "³" {
 			return fmt.Errorf("reserved Windows path component %q", component)
 		}
