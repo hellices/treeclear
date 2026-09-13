@@ -39,10 +39,16 @@ func WritePrivateFile(path string, contents []byte) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if err := EnsurePrivateDirectory(filepath.Dir(path)); err != nil {
+	parent := filepath.Dir(path)
+	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+		parent = resolved
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err := EnsurePrivateDirectory(parent); err != nil {
+		return err
+	}
+	parent, err = filepath.EvalSymlinks(parent)
 	if err != nil {
 		return err
 	}

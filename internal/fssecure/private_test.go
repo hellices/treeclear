@@ -111,6 +111,37 @@ func TestPrivateOperationsAllowAncestorAliases(test *testing.T) {
 	assertPrivateObject(test, filepath.Join(realParent, "state", "plans"), true)
 }
 
+func TestWritePrivateFileAllowsImmediateParentAlias(test *testing.T) {
+	ancestor := privateDirectoryFixture(test)
+	makeBroadFixture(test, ancestor, true)
+	before := securitySnapshot(test, ancestor)
+	realParent := filepath.Join(ancestor, "real")
+	if err := os.Mkdir(realParent, 0o755); err != nil {
+		test.Fatal(err)
+	}
+	makeBroadFixture(test, realParent, true)
+	alias := filepath.Join(ancestor, "alias")
+	makeSymlinkFixture(test, realParent, alias)
+	path := filepath.Join(alias, "plan.json")
+	contents := []byte("private through the immediate parent alias")
+	if err := WritePrivateFile(path, contents); err != nil {
+		test.Fatalf("WritePrivateFile through parent alias: %v", err)
+	}
+	actual, err := ReadPrivateFile(path, int64(len(contents)))
+	if err != nil || !bytes.Equal(actual, contents) {
+		test.Fatalf("ReadPrivateFile through parent alias = %q, %v", actual, err)
+	}
+	assertPrivateObject(test, realParent, true)
+	assertPrivateObject(test, filepath.Join(realParent, "plan.json"), false)
+	if after := securitySnapshot(test, ancestor); after != before {
+		test.Fatal("changed the existing ancestor's security")
+	}
+	if err := WritePrivateFile(path, []byte("replacement")); !errors.Is(err, fs.ErrExist) {
+		test.Fatalf("overwrote a file through a parent alias: %v", err)
+	}
+	assertContents(test, path, contents)
+}
+
 func TestEnsurePrivateDirectoryConcurrentCreators(test *testing.T) {
 	path := filepath.Join(test.TempDir(), "state", "plans")
 	const creators = 16
