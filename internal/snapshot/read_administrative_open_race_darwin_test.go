@@ -17,6 +17,17 @@ import (
 )
 
 func TestReadAdministrativeFocusedDarwinLateDirectoryOpenRace(test *testing.T) {
+	exerciseAdministrativeReadDarwinLateOpenRace(test, openAdministrativeReadDirectory)
+}
+
+func TestReadAdministrativeFocusedDarwinLateRootOpenRace(test *testing.T) {
+	exerciseAdministrativeReadDarwinLateOpenRace(test, func(parent *os.Root, name string) (*os.Root, error) {
+		return openAdministrativeReadRoot(filepath.Join(parent.Name(), name))
+	})
+}
+
+func exerciseAdministrativeReadDarwinLateOpenRace(test *testing.T, openDirectory func(*os.Root, string) (*os.Root, error)) {
+	test.Helper()
 	directory := test.TempDir()
 	target := filepath.Join(directory, "racing")
 	pipe := filepath.Join(directory, "pipe")
@@ -31,7 +42,7 @@ func TestReadAdministrativeFocusedDarwinLateDirectoryOpenRace(test *testing.T) {
 		test.Fatal(err)
 	}
 	defer parent.Close()
-	baseline, err := openAdministrativeReadDirectory(parent, "racing")
+	baseline, err := openDirectory(parent, "racing")
 	if err != nil {
 		test.Fatal(err)
 	}
@@ -63,7 +74,7 @@ func TestReadAdministrativeFocusedDarwinLateDirectoryOpenRace(test *testing.T) {
 			if ctx.Err() != nil {
 				break
 			}
-			root, _ := openAdministrativeReadDirectory(parent, "racing")
+			root, _ := openDirectory(parent, "racing")
 			if root != nil {
 				openedDirectories.Add(1)
 				if err := root.Close(); err != nil {
@@ -120,6 +131,9 @@ func TestReadAdministrativeFocusedDarwinLateDirectoryOpenRace(test *testing.T) {
 	}
 	test.Logf("replacement attempts=%d, opened directories=%d, GOMAXPROCS=%d", replacements.Load(), openedDirectories.Load(), runtime.GOMAXPROCS(0))
 	if timedOut {
-		test.Fatal("nested directory open blocked when a FIFO replaced the directory after the root API's path check")
+		test.Fatal("administrative directory open blocked while a FIFO replaced the directory")
+	}
+	if replacements.Load() == 0 || openedDirectories.Load() == 0 {
+		test.Fatal("race coverage requires successful replacements and directory opens")
 	}
 }

@@ -54,8 +54,8 @@ func validateAdministrativeReadNativeInfo(information fs.FileInfo) error {
 	if !ok || attributes == nil {
 		return fmt.Errorf("administrative native attributes are unavailable")
 	}
-	if attributes.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return fmt.Errorf("administrative reparse records are unsupported")
+	if attributes.FileAttributes&(windows.FILE_ATTRIBUTE_REPARSE_POINT|windows.FILE_ATTRIBUTE_DEVICE) != 0 {
+		return fmt.Errorf("administrative reparse or device records are unsupported")
 	}
 	return nil
 }

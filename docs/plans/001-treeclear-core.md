@@ -2196,7 +2196,7 @@ revalidate every observed entry and the original root path before returning.
 Capture Windows root identity through a no-follow metadata handle: path-based
 `os.Lstat` can defer file-ID lookup until after a replacement. A native Windows
 same-mode/size/time replacement test must therefore exercise pinned identity.
-Check the native reparse attribute even if `FileMode` looks regular.
+Check native reparse and device attributes even if `FileMode` looks regular.
 
 Prevent Unix file/directory-to-FIFO substitution from blocking open. Plain
 `os.OpenRoot` is not sufficient on the selected toolchain; verified directory
@@ -2208,7 +2208,13 @@ does not protect its subsequent Unix open against FIFO replacement. A terminal
 dot makes the mutable directory an intermediate `O_DIRECTORY` open and opens
 the final dot relative to that acquired directory. A native Darwin atomic
 directory/FIFO exchange regression covers this late race, beyond the earlier
-before-call substitution tests. Check context around filesystem operations
+before-call substitution tests. Require both successful exchanges and directory
+opens in each stress test. A separate absolute-root race regression covers the
+direct `os.OpenRoot` path: unlike `Root.OpenRoot`, it forwards its trailing slash
+unchanged to the Unix open syscall, which requires a directory atomically.
+Keep successful administrative-read integration tests limited to the supported
+reader platforms; unsupported targets retain their explicit error contract.
+Check context around filesystem operations
 and bounded reads; synchronous OS calls are not
 claimed preemptibly cancellable. Rejecting file growth can read one extra
 detection byte beyond the aggregate allowance, but cannot return partial
