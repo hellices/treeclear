@@ -131,20 +131,25 @@ func (client *Client) gitDirectory(ctx context.Context, repository string, argum
 }
 
 func (client *Client) ListWorktrees(ctx context.Context, repository string) ([]domain.Worktree, error) {
+	worktrees, _, err := client.ListWorktreesRaw(ctx, repository)
+	return worktrees, err
+}
+
+func (client *Client) ListWorktreesRaw(ctx context.Context, repository string) ([]domain.Worktree, []byte, error) {
 	result, err := client.run(ctx, repository, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	records, err := parseWorktreePorcelainZ(result.Stdout)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if records[0].Bare {
-		return nil, errors.New("bare repositories are not supported as discovery anchors")
+		return nil, nil, errors.New("bare repositories are not supported as discovery anchors")
 	}
 	commonDirectory, err := client.CommonGitDir(ctx, repository)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	worktrees := make([]domain.Worktree, 0, len(records))
 	for index, record := range records {
@@ -155,7 +160,7 @@ func (client *Client) ListWorktrees(ctx context.Context, repository string) ([]d
 			Prunable: record.Prunable,
 		})
 	}
-	return worktrees, nil
+	return worktrees, result.Stdout, nil
 }
 
 func (client *Client) rejectExecutableFilters(ctx context.Context, directory string) error {
@@ -206,17 +211,26 @@ func (client *Client) rejectUnsafeIndex(ctx context.Context, directory string) e
 }
 
 func (client *Client) Status(ctx context.Context, worktree string) (domain.GitStatus, error) {
+	status, _, err := client.StatusRaw(ctx, worktree)
+	return status, err
+}
+
+func (client *Client) StatusRaw(ctx context.Context, worktree string) (domain.GitStatus, []byte, error) {
 	if err := client.rejectExecutableFilters(ctx, worktree); err != nil {
-		return domain.GitStatus{}, err
+		return domain.GitStatus{}, nil, err
 	}
 	if err := client.rejectUnsafeIndex(ctx, worktree); err != nil {
-		return domain.GitStatus{}, err
+		return domain.GitStatus{}, nil, err
 	}
 	result, err := client.run(ctx, worktree, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil {
-		return domain.GitStatus{}, err
+		return domain.GitStatus{}, nil, err
 	}
-	return parseStatusPorcelainZ(result.Stdout)
+	status, err := parseStatusPorcelainZ(result.Stdout)
+	if err != nil {
+		return domain.GitStatus{}, nil, err
+	}
+	return status, result.Stdout, nil
 }
 
 func (client *Client) Diff(ctx context.Context, worktree string, staged bool) ([]byte, error) {
@@ -231,7 +245,10 @@ func (client *Client) Diff(ctx context.Context, worktree string, staged bool) ([
 		arguments = append(arguments, "--cached")
 	}
 	result, err := client.run(ctx, worktree, append(arguments, "--")...)
-	return result.Stdout, err
+	if err != nil {
+		return nil, err
+	}
+	return result.Stdout, nil
 }
 
 func (client *Client) RemoveWorktree(ctx context.Context, repository, path string) error {

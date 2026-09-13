@@ -65,7 +65,7 @@ func parseWorktreePorcelainZ(contents []byte) ([]rawWorktree, error) {
 			if worktree.Head != "" || worktree.Branch != "" || worktree.Detached {
 				return nil, errors.New("bare worktree has conflicting branch metadata")
 			}
-		} else if worktree.Head == "" || (worktree.Branch == "") == !worktree.Detached {
+		} else if !validPorcelainObjectID(worktree.Head) || (worktree.Branch == "") == !worktree.Detached {
 			return nil, errors.New("worktree HEAD or branch state is ambiguous")
 		}
 		paths[worktree.Path] = true
