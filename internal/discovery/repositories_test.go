@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/hellices/treeclear/internal/domain"
@@ -108,6 +109,54 @@ func TestFinderSkipsMetadataCachesAndConfiguredDataDirectory(test *testing.T) {
 	found, failures := finder.Find(context.Background(), append([]string{repository.Root}, ignored...))
 	if len(failures) != 0 || len(found) != 2 || found[0].Root != repository.Root || found[1].Root != visible {
 		test.Fatalf("Find() = %#v, %v", found, failures)
+	}
+}
+
+func TestFinderSkipsCaseAliasedCacheDirectories(test *testing.T) {
+	for _, name := range []string{"node_modules", ".cache", "target"} {
+		test.Run(name, func(test *testing.T) {
+			repository := testutil.NewRepository(test)
+			original := filepath.Join(repository.Root, name)
+			alias := filepath.Join(repository.Root, strings.ToUpper(name))
+			moveRepository(test, filepath.Join(original, "nested"))
+			if err := os.Rename(original, alias); err != nil {
+				test.Fatal(err)
+			}
+			if _, err := os.Lstat(original); errors.Is(err, fs.ErrNotExist) {
+				test.Skip("filesystem has case-sensitive directory names")
+			} else if err != nil {
+				test.Fatal(err)
+			}
+			finder := Finder{ReadDir: func(path string) ([]os.DirEntry, error) {
+				if pathutil.Contains(alias, path) {
+					test.Errorf("discovery entered excluded cache alias: %q", path)
+					return nil, fs.ErrPermission
+				}
+				return os.ReadDir(path)
+			}}
+			found, failures := finder.Find(context.Background(), []string{repository.Root, alias, filepath.Join(alias, "nested")})
+			if len(failures) != 0 || len(found) != 1 || found[0].Root != repository.Root {
+				test.Fatalf("case-aliased cache was not excluded: %#v, %v", found, failures)
+			}
+		})
+	}
+}
+
+func TestFinderPreservesDistinctCaseSensitiveCacheNames(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	if err := os.Mkdir(filepath.Join(repository.Root, "target"), 0o700); err != nil {
+		test.Fatal(err)
+	}
+	upper := filepath.Join(repository.Root, "TARGET")
+	if _, err := os.Lstat(upper); err == nil {
+		test.Skip("filesystem has case-insensitive directory names")
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		test.Fatal(err)
+	}
+	moveRepository(test, upper)
+	found, failures := Find(context.Background(), []string{repository.Root})
+	if len(failures) != 0 || len(found) != 2 || found[0].Root != repository.Root || found[1].Root != upper {
+		test.Fatalf("distinct case-sensitive repository was excluded: %#v, %v", found, failures)
 	}
 }
 

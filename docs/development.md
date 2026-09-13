@@ -53,9 +53,21 @@ Byte estimates exclude the root Git marker and its metadata tree. Marker aliases
 are matched by filesystem identity, not case spelling alone. Nested Git markers
 still make the affected worktree unknown and unsafe.
 
-An administrative directory outside the repository's common Git directory
-invalidates path safety. Agent evidence cannot establish inactivity when both
-`createdAt` and `updatedAt` are absent; observation time is not activity time.
+Discovery also excludes filesystem-identical case aliases of `.git`,
+`node_modules`, `.cache`, and `target`, including explicit roots beneath them.
+Distinct case-sensitive directory names are not aliases.
+
+Missing or unresolvable administrative identities and administrative directories
+outside the repository's common Git directory invalidate path safety.
+Administrative hashing accepts at most 4,096 enumerated entries (including the
+root and skipped directories) and 16 MiB of selected file contents. Index hashing
+has its own 16 MiB limit. Both hashes share a 30-second context deadline;
+cancellation is checked between bounded directory batches and file reads.
+Synchronous operating-system filesystem calls cannot be forcibly interrupted.
+Any limit, cancellation, or collection error leaves Git state unknown.
+
+Agent evidence cannot establish inactivity when both `createdAt` and `updatedAt`
+are absent; observation time is not activity time.
 
 ## Delivery
 

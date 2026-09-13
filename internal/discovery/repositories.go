@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -57,9 +56,12 @@ func (finder Finder) Find(ctx context.Context, roots []string) ([]Repository, []
 		return nil, failures
 	}
 	excluded := func(path string) bool {
-		for _, component := range strings.FieldsFunc(path, func(character rune) bool { return character == rune(filepath.Separator) }) {
-			if ignoredName(component) {
+		for ancestor := path; ; ancestor = filepath.Dir(ancestor) {
+			if ignoredDirectory(ancestor) {
 				return true
+			}
+			if filepath.Dir(ancestor) == ancestor {
+				break
 			}
 		}
 		return dataDirectory != "" && (containsPath(dataDirectory, path) || pathutil.Contains(dataDirectory, path))
@@ -129,20 +131,21 @@ func (finder Finder) Find(ctx context.Context, roots []string) ([]Repository, []
 		entries = append([]os.DirEntry(nil), entries...)
 		sort.Slice(entries, func(first, second int) bool { return entries[first].Name() < entries[second].Name() })
 		for _, entry := range entries {
-			if ignoredName(entry.Name()) || entry.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 || !entry.IsDir() {
+			entryPath := filepath.Join(path, entry.Name())
+			if ignoredDirectory(entryPath) || entry.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 || !entry.IsDir() {
 				continue
 			}
 			if metadata != nil && metadata.IsDir() {
 				entryInfo, err := entry.Info()
 				if err != nil {
-					record("directory entry", filepath.Join(path, entry.Name()), err)
+					record("directory entry", entryPath, err)
 					continue
 				}
 				if os.SameFile(metadata, entryInfo) {
 					continue
 				}
 			}
-			walk(filepath.Join(path, entry.Name()))
+			walk(entryPath)
 			if ctx.Err() != nil {
 				return
 			}
@@ -323,9 +326,11 @@ func containsPath(parent, child string) bool {
 	return err == nil && filepath.IsLocal(relative)
 }
 
-func ignoredName(name string) bool {
-	if runtime.GOOS == "windows" {
-		name = strings.ToLower(name)
+func ignoredDirectory(path string) bool {
+	name := filepath.Base(path)
+	normalized := strings.ToLower(name)
+	if normalized != ".git" && normalized != "node_modules" && normalized != ".cache" && normalized != "target" {
+		return false
 	}
-	return name == ".git" || name == "node_modules" || name == ".cache" || name == "target"
+	return name == normalized || sameDirectory(path, filepath.Join(filepath.Dir(path), normalized))
 }

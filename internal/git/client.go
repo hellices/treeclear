@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,11 @@ import (
 	"github.com/hellices/treeclear/internal/execx"
 )
 
-const maxGitBytes = 16 << 20
+const (
+	maxGitBytes     = 16 << 20
+	maxAdminEntries = 4096
+	gitReadTimeout  = 30 * time.Second
+)
 
 type Client struct {
 	Runner       execx.Runner
@@ -50,7 +55,7 @@ func (client *Client) run(ctx context.Context, directory string, arguments ...st
 	})
 	result, err := client.Runner.Run(ctx, execx.Request{
 		Directory: directory, Name: "git", Args: arguments, Env: environment,
-		Timeout: 30 * time.Second, MaxBytes: maxGitBytes,
+		Timeout: gitReadTimeout, MaxBytes: maxGitBytes,
 	})
 	if err == nil && result.ExitCode != 0 {
 		err = fmt.Errorf("exit status %d", result.ExitCode)
@@ -264,9 +269,15 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 	}
 	var err error
 	commonDirectory, err := client.CommonGitDir(ctx, repository)
+	if err != nil {
+		worktree.PathSafe = false
+	}
 	record("common directory", err)
 	worktree.CommonGitDir = commonDirectory
 	worktree.AdminDir, err = client.gitDirectory(ctx, worktree.Path, "--absolute-git-dir")
+	if err != nil {
+		worktree.PathSafe = false
+	}
 	record("administrative directory", err)
 	if worktree.AdminDir != "" && commonDirectory != "" {
 		relative, relErr := filepath.Rel(commonDirectory, worktree.AdminDir)
@@ -274,9 +285,11 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 			worktree.PathSafe = false
 			record("administrative directory", errors.New("metadata is outside the repository common directory"))
 		} else {
-			worktree.IndexHash, err = hashFile(filepath.Join(worktree.AdminDir, "index"))
+			hashContext, cancel := context.WithTimeout(ctx, gitReadTimeout)
+			worktree.IndexHash, _, err = hashFile(hashContext, filepath.Join(worktree.AdminDir, "index"), maxGitBytes)
 			record("index hash", err)
-			worktree.AdminHash, worktree.MetadataModifiedAt, err = hashAdmin(worktree.AdminDir, worktree.Primary)
+			worktree.AdminHash, worktree.MetadataModifiedAt, err = hashAdmin(hashContext, worktree.AdminDir, worktree.Primary)
+			cancel()
 			record("administrative metadata", err)
 		}
 	}
@@ -358,44 +371,71 @@ func outputLine(contents []byte) string {
 	return value
 }
 
-func hashFile(path string) (string, error) {
+func hashFile(ctx context.Context, path string, maxBytes int64) (string, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return "", 0, err
+	}
 	metadata, err := os.Lstat(path)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if !metadata.Mode().IsRegular() {
-		return "", fmt.Errorf("metadata is not a regular file: %q", path)
+		return "", 0, fmt.Errorf("metadata is not a regular file: %q", path)
+	}
+	if metadata.Size() > maxBytes {
+		return "", 0, errors.New("Git metadata exceeds collection limit")
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer file.Close()
 	digest := sha256.New()
-	count, err := io.Copy(digest, io.LimitReader(file, maxGitBytes+1))
-	if err != nil {
-		return "", err
+	reader := io.LimitReader(file, maxBytes+1)
+	var buffer [32 << 10]byte
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", 0, err
+		}
+		count, readErr := reader.Read(buffer[:])
+		total += int64(count)
+		if total > maxBytes {
+			return "", 0, errors.New("Git metadata exceeds collection limit")
+		}
+		digest.Write(buffer[:count])
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				return "", 0, readErr
+			}
+			break
+		}
 	}
-	if count > maxGitBytes {
-		return "", errors.New("Git metadata exceeds collection limit")
+	if err := ctx.Err(); err != nil {
+		return "", 0, err
 	}
-	return hex.EncodeToString(digest.Sum(nil)), nil
+	return hex.EncodeToString(digest.Sum(nil)), total, nil
 }
 
-func hashAdmin(directory string, primary bool) (string, time.Time, error) {
+func hashAdmin(ctx context.Context, directory string, primary bool) (string, time.Time, error) {
+	if err := ctx.Err(); err != nil {
+		return "", time.Time{}, err
+	}
+	root, err := os.Lstat(directory)
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	digest := sha256.New()
 	var latest time.Time
 	var total int64
-	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		relative, err := filepath.Rel(directory, path)
-		if err != nil {
+	remainingEntries := maxAdminEntries - 1
+	var visit func(string, string, fs.DirEntry) error
+	visit = func(path, relative string, entry fs.DirEntry) error {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if primary && relative != "." && entry.IsDir() && relative != "info" {
-			return fs.SkipDir
+			return nil
 		}
 		metadata, err := entry.Info()
 		if err != nil {
@@ -409,20 +449,61 @@ func hashAdmin(directory string, primary bool) (string, time.Time, error) {
 		}
 		fmt.Fprintf(digest, "%q\x00%o\x00", filepath.ToSlash(relative), metadata.Mode())
 		if metadata.IsDir() {
+			entries, err := readAdminEntries(ctx, path, remainingEntries)
+			if err != nil {
+				return err
+			}
+			remainingEntries -= len(entries)
+			for _, child := range entries {
+				if err := visit(filepath.Join(path, child.Name()), filepath.Join(relative, child.Name()), child); err != nil {
+					return err
+				}
+			}
 			return nil
 		}
-		total += metadata.Size()
-		if total > maxGitBytes {
-			return errors.New("Git administrative metadata exceeds collection limit")
-		}
-		fileHash, err := hashFile(path)
+		fileHash, count, err := hashFile(ctx, path, maxGitBytes-total)
 		if err == nil {
+			total += count
 			fmt.Fprintln(digest, fileHash)
 		}
 		return err
-	})
+	}
+	err = visit(directory, ".", fs.FileInfoToDirEntry(root))
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	return hex.EncodeToString(digest.Sum(nil)), latest, nil
+}
+
+func readAdminEntries(ctx context.Context, directory string, limit int) ([]os.DirEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	file, err := os.Open(directory)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var entries []os.DirEntry
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		batch, readErr := file.ReadDir(min(128, limit-len(entries)+1))
+		entries = append(entries, batch...)
+		if len(entries) > limit {
+			return nil, errors.New("Git administrative metadata exceeds entry limit")
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				return nil, readErr
+			}
+			break
+		}
+	}
+	sort.Slice(entries, func(first, second int) bool { return entries[first].Name() < entries[second].Name() })
+	return entries, nil
 }
