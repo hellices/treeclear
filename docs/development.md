@@ -128,6 +128,12 @@ aliased fields and noncanonical times are rejected rather than interpreted
 ambiguously. The MAC is checked before schema, expiry, or action metadata is
 trusted. Another installation's key cannot authenticate an exported plan.
 
+The version-1 integrity object is the final JSON field. Loading first checks
+its fixed canonical trailer and authenticates the raw bytes with the MAC
+value elided, before decoding candidates or evidence. A canonical typed
+round-trip is checked afterward. Compact unauthenticated arrays therefore
+cannot expand into large typed plans before rejection.
+
 Plans are limited to 16 MiB. IDs start with `plan_`, contain only ASCII
 letters/digits/underscores/hyphens in their nonempty suffix, and are at most
 128 bytes. Expiry must be strictly later than the clock. The later builder

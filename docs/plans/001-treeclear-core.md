@@ -1822,6 +1822,12 @@ encoding prevents ambiguous JSON representations. Exports in Task 7C must
 preserve the saved bytes. Stored plans use `plans/<planId>.json`; loading by ID
 also checks that the authenticated identifier matches the requested ID.
 
+The canonical version-1 integrity object is the final root field. `Load`
+authenticates the bounded raw document, excluding only the MAC value in this
+fixed trailer, before materializing the typed plan. It then checks a canonical
+typed round-trip. This ordering avoids memory amplification from compact
+unauthenticated arrays of empty candidate/evidence objects.
+
 Task 7 also implements `fssecure.EnsurePrivateDirectory`,
 `fssecure.WritePrivateFile`, and bounded read-only
 `fssecure.ReadPrivateFile(path string, maximumBytes int64) ([]byte, error)`.

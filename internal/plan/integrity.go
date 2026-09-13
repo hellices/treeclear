@@ -47,8 +47,29 @@ func decodeAuthenticatedPlan(contents, key []byte) (domain.Plan, error) {
 	if err := validateIntegrityKey(key); err != nil {
 		return domain.Plan{}, err
 	}
+	if len(contents) > maximumPlanBytes {
+		return domain.Plan{}, fmt.Errorf("%w: document exceeds size limit", ErrPlanIntegrity)
+	}
 	contents = bytes.TrimSpace(contents)
 	if !utf8.Valid(contents) {
+		return domain.Plan{}, ErrPlanIntegrity
+	}
+	prefix := `,"integrity":{"algorithm":"` + integrityAlgorithm + `","keyId":"` + integrityKeyID(key) + `","mac":"`
+	macEnd := len(contents) - len(`"}}`)
+	macStart := macEnd - sha256.Size*2
+	prefixStart := macStart - len(prefix)
+	if prefixStart < 0 || !bytes.HasSuffix(contents, []byte(`"}}`)) || !bytes.Equal(contents[prefixStart:macStart], []byte(prefix)) {
+		return domain.Plan{}, ErrPlanIntegrity
+	}
+	macText := string(contents[macStart:macEnd])
+	claimed, err := hex.DecodeString(macText)
+	if err != nil || len(claimed) != sha256.Size || hex.EncodeToString(claimed) != macText {
+		return domain.Plan{}, ErrPlanIntegrity
+	}
+	authenticator := hmac.New(sha256.New, key)
+	_, _ = authenticator.Write(contents[:macStart])
+	_, _ = authenticator.Write(contents[macEnd:])
+	if !hmac.Equal(claimed, authenticator.Sum(nil)) {
 		return domain.Plan{}, ErrPlanIntegrity
 	}
 	var value domain.Plan
@@ -58,24 +79,6 @@ func decodeAuthenticatedPlan(contents, key []byte) (domain.Plan, error) {
 	canonical, err := canonicalPlanJSON(value)
 	if err != nil || !bytes.Equal(canonical, contents) {
 		return domain.Plan{}, fmt.Errorf("%w: noncanonical document", ErrPlanIntegrity)
-	}
-	if value.Integrity.Algorithm != integrityAlgorithm || value.Integrity.KeyID != integrityKeyID(key) {
-		return domain.Plan{}, ErrPlanIntegrity
-	}
-	claimed, err := hex.DecodeString(value.Integrity.MAC)
-	if err != nil || len(claimed) != sha256.Size || hex.EncodeToString(claimed) != value.Integrity.MAC {
-		return domain.Plan{}, ErrPlanIntegrity
-	}
-	unsigned := value
-	unsigned.Integrity.MAC = ""
-	payload, err := canonicalPlanJSON(unsigned)
-	if err != nil {
-		return domain.Plan{}, ErrPlanIntegrity
-	}
-	authenticator := hmac.New(sha256.New, key)
-	_, _ = authenticator.Write(payload)
-	if !hmac.Equal(claimed, authenticator.Sum(nil)) {
-		return domain.Plan{}, ErrPlanIntegrity
 	}
 	return value, nil
 }

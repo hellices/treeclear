@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +269,73 @@ func TestPlanIntegrityRetainsPlanningOnlyEvidence(test *testing.T) {
 	}
 	if _, err := decodeAuthenticatedPlan(tampered, key); !errors.Is(err, ErrPlanIntegrity) {
 		test.Fatalf("planning-only evidence is not authenticated: %v", err)
+	}
+}
+
+func TestPlanIntegrityRejectsCompactUnauthenticatedArraysWithoutExpansion(test *testing.T) {
+	key := bytes.Repeat([]byte{0x42}, 32)
+	objects := strings.Repeat("{},", 4095) + "{}"
+	metadata, err := json.Marshal(domain.PlanIntegrity{
+		Algorithm: integrityAlgorithm, KeyID: integrityKeyID(key), MAC: strings.Repeat("0", 64),
+	})
+	if err != nil {
+		test.Fatal(err)
+	}
+	for name, suffix := range map[string]string{
+		"missing MAC": "}",
+		"invalid MAC": `,"integrity":` + string(metadata) + "}",
+	} {
+		test.Run(name, func(test *testing.T) {
+			contents := []byte(`{"candidates":[` + objects + "]" + suffix)
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			value, err := decodeAuthenticatedPlan(contents, key)
+			runtime.ReadMemStats(&after)
+			if !errors.Is(err, ErrPlanIntegrity) || value.ID != "" || len(value.Candidates) != 0 {
+				test.Fatalf("unauthenticated document = %q, %v", value.ID, err)
+			}
+			allocated := after.TotalAlloc - before.TotalAlloc
+			maximum := uint64(1<<20) + 16*uint64(len(contents))
+			test.Logf("%d input bytes allocated %d bytes before rejection", len(contents), allocated)
+			if allocated > maximum {
+				test.Fatalf("unauthenticated JSON expanded: allocated %d bytes, maximum %d", allocated, maximum)
+			}
+		})
+	}
+}
+
+func TestPlanIntegrityRejectsAuthenticatedNoncanonicalDocuments(test *testing.T) {
+	key := bytes.Repeat([]byte{0x42}, 32)
+	contents, err := encodeSignedPlan(storedPlanFixture(), key)
+	if err != nil {
+		test.Fatal(err)
+	}
+	cases := map[string][]byte{
+		"duplicate field": append([]byte(`{"planId":"plan_fixture",`), contents[1:]...),
+		"unknown field":   append([]byte(`{"future":true,`), contents[1:]...),
+		"case alias":      bytes.Replace(contents, []byte(`"planId"`), []byte(`"PlanId"`), 1),
+		"time spelling":   bytes.Replace(contents, []byte(`12:00:00Z`), []byte(`12:00:00+00:00`), 1),
+		"whitespace":      append([]byte("{\n  "), contents[1:]...),
+		"reordered fields": bytes.Replace(contents,
+			[]byte(`{"schemaVersion":1,"planId":"plan_fixture",`),
+			[]byte(`{"planId":"plan_fixture","schemaVersion":1,`), 1),
+		"invalid JSON": bytes.Replace(contents, []byte(`"schemaVersion":1`), []byte(`"schemaVersion":`), 1),
+	}
+	for name, changed := range cases {
+		test.Run(name, func(test *testing.T) {
+			marker := []byte(`"mac":"`)
+			start := bytes.LastIndex(changed, marker) + len(marker)
+			end := start + bytes.IndexByte(changed[start:], '"')
+			if end-start != sha256.Size*2 {
+				test.Fatal("fixture has no MAC field")
+			}
+			authenticator := hmac.New(sha256.New, key)
+			_, _ = authenticator.Write(changed[:start])
+			_, _ = authenticator.Write(changed[end:])
+			copy(changed[start:end], hex.EncodeToString(authenticator.Sum(nil)))
+			if value, err := decodeAuthenticatedPlan(changed, key); !errors.Is(err, ErrPlanIntegrity) || len(value.Candidates) != 0 {
+				test.Fatalf("authenticated noncanonical document accepted: %q, %v", value.ID, err)
+			}
+		})
 	}
 }
