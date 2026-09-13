@@ -71,9 +71,8 @@ are absent; observation time is not activity time.
 
 ## Plan fingerprint foundation
 
-`internal/plan` currently exposes only pure `CandidateFingerprint` and
-`PolicyDigest` functions (Plan 001 Task 7A). No new CLI command, plan storage,
-HMAC key, or removal authorization is added. Collectors still own canonical
+`internal/plan` exposes pure `CandidateFingerprint` and `PolicyDigest`
+functions (Plan 001 Task 7A, merged in PR #3). Collectors still own canonical
 filesystem identities; hashing does not resolve paths or read user data.
 
 Fingerprints cover the dedicated safety preconditions, action, reason codes,
@@ -81,14 +80,78 @@ snapshot requirements, process identity/creation time, offline agent source
 identity and content, and adapter health/trust/offline status. They exclude
 observation times and human presentation text but preserve uncertainty via
 warning/error-presence bits. Planning-only agent records are excluded from
-the removal fingerprint, not from the future signed explanatory plan.
+the removal fingerprint, not from the signed explanatory plan.
 Unrecognized revalidation modes are errors, not omitted evidence.
 
 Both functions return `sha256:` plus lowercase hex. Tests cover field changes,
 stable ordering (including conflicting identities), immutable inputs, equal
 UTC instants, empty-list normalization, and malformed hashed inputs. The
-candidate fingerprint is not a substitute for future HMAC verification,
+candidate fingerprint is not a substitute for HMAC verification,
 whole-plan revalidation, snapshot verification, or explicit apply approval.
+
+## Private plan storage
+
+Plan 001 Task 7B adds `NewStore(root, now, integrityKey)`, `Store.Save`, and
+`Store.Load`. This is a storage/integrity slice only: the builder,
+`plan`/`explain` CLI, snapshots, and apply remain unimplemented. Authentication
+alone does not establish that an action is safe or authorize removal.
+
+With a nil key, the first save creates a random 32-byte `integrity.key` under
+the private state root. Injected keys are copied and never persisted. Plans
+live at `plans/<planId>.json`; both plans and keys are immutable. Concurrent
+creators use exclusive atomic hard-link publication of a flushed private
+temporary file, and an existing destination returns `fs.ErrExist` rather
+than being overwritten. Unsupported filesystems fail closed. Tests use only
+temporary directories, injected clocks, and synthetic plans.
+
+Unix storage uses `0700` directories and `0600` files. Windows creates a
+protected DACL granting full control only to the current user and `SYSTEM`.
+Reads verify private ownership/security without changing permissions and
+reject links, reparse points, nonregular files, and oversized data. Only the
+requested directory and newly created components are hardened; existing
+ancestors are not changed. External private plan files may reside in public
+parent directories. Administrator and same-user malicious processes are
+outside the privacy boundary; HMAC is authentication, not encryption.
+
+On macOS, use local APFS/HFS with ownership enabled and without nonempty
+extended ACLs. On Windows, the volume must support persistent ACLs. Both
+require hard-link publication support. Linux compilation is supplementary,
+not a substitute for the supported native macOS/Windows jobs. An interrupted
+process may leave private staging files; automatic recovery is not yet added.
+
+The store signs the complete canonical version-1 JSON with HMAC-SHA-256,
+including explanations, planning-only evidence, observation timestamps, and
+list ordering. UTC timestamp normalization does not mutate caller values.
+`Load` requires the exact canonical bytes, apart from surrounding whitespace:
+do not pretty-print or reorder a saved/exported file. Duplicate/unknown/case-
+aliased fields and noncanonical times are rejected rather than interpreted
+ambiguously. The MAC is checked before schema, expiry, or action metadata is
+trusted. Another installation's key cannot authenticate an exported plan.
+
+The version-1 integrity object is the final JSON field. Loading first checks
+its fixed canonical trailer and authenticates the raw bytes with the MAC
+value elided, before decoding candidates or evidence. A canonical typed
+round-trip is checked afterward. Compact unauthenticated arrays therefore
+cannot expand into large typed plans before rejection.
+
+Plans are limited to 16 MiB. IDs start with `plan_`, contain only ASCII
+letters/digits/underscores/hyphens in their nonempty suffix, and are at most
+128 bytes. Other nonempty, non-NUL inputs to `Load` are paths, including bare
+relative filenames without an extension. A valid ID takes precedence; use
+`./plan_example` or an absolute path to load a file whose name is also an ID.
+Expiry must be strictly later than the clock. The later builder
+owns populating generation time; this low-level store rejects nonzero future
+generation times but accepts zero for minimal plan construction. Missing or
+corrupt key reads fail without generating replacement state; existing corrupt
+keys are never silently replaced by saves. Invalid saves are rejected before
+state creation, and loading never creates state or repairs ACLs.
+
+Already-canceled operations, and cancellation detected during preflight, do
+not create state. Once filesystem work begins, cancellation is checked
+between phases but cannot interrupt synchronous OS calls. Private directories
+or a key can remain if cancellation arrives during initialization; publication
+already in progress can complete successfully. Cancellation does not roll
+back shared initialization or delete immutable files used by other callers.
 
 ## Delivery
 

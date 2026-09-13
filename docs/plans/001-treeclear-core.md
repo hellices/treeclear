@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 7A fingerprint foundation
+- Status: In progress — Task 7B private plan storage and integrity
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,20 +12,20 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1 and #2 are merged: the standard development baseline, Tasks 1–6, and
-the read-only `scan` command brought forward from Task 7 are delivered.
-The current Task 7A slice adds pure candidate fingerprints and policy digests.
-Task 7 plan building, private persistence, integrity, and `plan`/`explain`
-commands, plus Tasks 8–11 cleanup and recovery, remain pending. This split
-keeps the identity contract independently reviewable before introducing
-private storage or signed plans. Agent adapters and later plans remain
-unimplemented; no mutation command is exposed.
+PRs #1, #2, and #3 are merged: the standard development baseline, Tasks 1–6,
+the read-only `scan` command brought forward from Task 7, and Task 7A's pure
+candidate fingerprints and policy digests are delivered. The current Task 7B
+slice adds private plan storage and local HMAC authentication. Task 7C plan
+building and `plan`/`explain` commands, plus Tasks 8–11 cleanup and recovery,
+remain pending. Each slice keeps its safety contract independently reviewable.
+Agent adapters and later plans remain unimplemented; no mutation command is
+exposed.
 
 **Goal:** Build a working macOS and Windows Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, safely removes approved worktrees, and restores them from verified local snapshots.
 
 **Architecture:** A Go CLI delegates all operating-system and Git reads to narrow collectors, converts them into immutable domain values, and evaluates a pure fail-closed policy. Apply reloads the exact plan, re-collects every precondition, snapshots every pending target, and only then performs serial `git worktree remove` operations with a durable journal.
 
-**Tech Stack:** Go 1.26.0 with toolchain 1.26.5, Cobra 1.10.2, go-toml/v2 2.4.3, gopsutil/v4 4.26.8, x/sys 0.48.0, go-cmp 0.7.0, Git 2.36 or newer, standard-library tar/gzip and crypto packages.
+**Tech Stack:** Go 1.26.0 with toolchain 1.26.5, Cobra 1.10.2, go-toml/v2 2.4.3, gopsutil/v4 4.26.8, x/sys 0.41.0, go-cmp 0.7.0, Git 2.36 or newer, standard-library tar/gzip and crypto packages.
 
 ## Global Constraints
 
@@ -185,7 +185,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.41.0
 )
 ```
 
@@ -1528,14 +1528,15 @@ git commit -m "feat: classify cleanup candidates safely"
 
 Reviewable delivery slices:
 
-- **7A (current):** `CandidateFingerprint` and `PolicyDigest`, deterministic
+- **7A (merged, PR #3):** `CandidateFingerprint` and `PolicyDigest`, deterministic
   precondition encoding, and focused mutation/canonicalization tests.
-- **7B (pending):** private filesystem storage, local HMAC integrity, expiry,
+- **7B (current):** private filesystem storage, local HMAC integrity, expiry,
   and tamper rejection on native macOS and Windows.
 - **7C (pending):** builder integration and the `plan`/`explain` CLI commands.
 
 The combined Task 7 checkboxes below remain open until all slices are delivered.
-7A does not create, authenticate, persist, load, or apply a plan.
+7B accepts already constructed plans; it does not build a plan, expose a new
+CLI command, authorize an action, or apply cleanup.
 
 **Files:**
 - Create: `internal/plan/fingerprint.go`
@@ -1782,23 +1783,79 @@ hashing, copy and sort `BaseBranches`. The digest inputs are exactly:
 - minimum adapter trust grade;
 - snapshot maximum bytes.
 
-`Store.Save` must write mode `0600` to a temporary file under the private plan
-directory, `Sync`, close, and rename atomically.
+`Store.Save` validates the schema, identifier, expiry, encoding, and 16 MiB
+document limit before creating state. Schema 1 identifiers start with `plan_`
+and have an ASCII letter/digit/underscore/hyphen suffix, at most 128 bytes in
+total. Expiry must be strictly after the injected clock. A nonzero generation
+time must not be in the future and must precede expiry; the Task 7C builder
+owns supplying generation time and deriving unique content/randomness IDs.
+
+The 7B publication contract refines the original overwrite-capable rename
+sketch: plans and the integrity key are immutable, exclusively published
+files. `fssecure.WritePrivateFile` writes a private temporary file in the
+destination directory, calls `Sync`, closes it, and atomically links it into
+the final name without replacement. An existing name returns `fs.ErrExist`;
+the temporary name is removed on success or failure. Filesystems without
+exclusive hard-link publication fail closed rather than falling back to
+truncation or overwrite. This prevents concurrent same-ID saves or first-use
+key creation from replacing a complete winner.
 
 `internal/plan/integrity.go` creates one random 32-byte HMAC key in the private
-Treeclear state directory on first use. It stores the key through
-`fssecure.EnsurePrivateDirectory`, derives `KeyID` as SHA-256 of the key, and
+Treeclear state directory on first save as `integrity.key`. A supplied 32-byte
+test key is copied and is not persisted. It stores the local key through
+`fssecure.WritePrivateFile`, derives `KeyID` as `sha256:` plus lowercase hex, and
 computes HMAC-SHA-256 over canonical plan JSON with `Integrity.MAC` empty.
 `Store.Load` verifies the MAC with `hmac.Equal` before trusting any action,
 decision, path, or fingerprint. User-supplied plan files use the same local
 key and fail with `ErrPlanIntegrity` when edited or copied from another
-installation.
+installation. Missing, malformed, or inaccessible keys are never repaired by
+`Load`; malformed or inaccessible keys also block `Save` rather than being
+replaced.
 
-Task 7 also implements `fssecure.EnsurePrivateDirectory` and
-`fssecure.WritePrivateFile`. Unix uses `0700` directories and `0600` files.
+The signed JSON includes the complete typed plan, including planning-only
+records, observation times, explanatory messages, and list ordering. All
+timestamps are normalized to UTC without modifying caller values. Loads
+accept the canonical encoding emitted by the store, with optional surrounding
+whitespace, not pretty-printed/reordered documents, duplicate or unknown
+fields, case-aliased names, or alternate time spellings. This strict version-1
+encoding prevents ambiguous JSON representations. Exports in Task 7C must
+preserve the saved bytes. Stored plans use `plans/<planId>.json`; loading by ID
+also checks that the authenticated identifier matches the requested ID.
+Other nonempty, non-NUL load arguments are file paths, with no extension
+requirement; relative paths resolve against the caller's working directory.
+Use `./` or an absolute path when a filename itself is also a valid plan ID.
+
+The canonical version-1 integrity object is the final root field. `Load`
+authenticates the bounded raw document, excluding only the MAC value in this
+fixed trailer, before materializing the typed plan. It then checks a canonical
+typed round-trip. This ordering avoids memory amplification from compact
+unauthenticated arrays of empty candidate/evidence objects.
+
+Cancellation detected before filesystem work creates no state. After that
+boundary, checks occur between phases, not inside synchronous OS calls:
+private initialization can remain and in-flight publication can complete.
+Do not roll back shared keys/directories or immutable files on cancellation.
+
+Task 7 also implements `fssecure.EnsurePrivateDirectory`,
+`fssecure.WritePrivateFile`, and bounded read-only
+`fssecure.ReadPrivateFile(path string, maximumBytes int64) ([]byte, error)`.
+Unix uses `0700` directories and `0600` files.
 Windows uses a protected DACL granting full control only to the current user
-and `SYSTEM`, through `windows.GetCurrentProcessToken`,
-`windows.ACLFromEntries`, and `windows.SetNamedSecurityInfo`.
+and `SYSTEM`, established at creation rather than after exposing plaintext.
+The implementation reuses the existing `golang.org/x/sys` v0.41.0 dependency;
+no version upgrade is required for this slice. Reads verify ownership and
+privacy without repairing permissions and reject symlinks/reparse points,
+nonregular files, and unverifiable security. External plan files do not
+require private parent directories. Directory hardening applies only to the
+requested directory and newly created components, not unrelated existing
+ancestors. These controls protect against other ordinary local users, not
+administrators or malicious processes running as the same user.
+
+macOS storage is restricted to local APFS/HFS with ownership enabled and no
+nonempty extended ACLs; unsafe ACLs are rejected, not silently removed.
+Windows requires persistent ACL support. Publication also requires hard-link
+support on either system. Abrupt process termination can leave private
+staging files; automatic staging recovery is outside this slice.
 
 The builder dependencies are explicit:
 
