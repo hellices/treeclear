@@ -1,7 +1,9 @@
 package correlate
 
 import (
+	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/hellices/treeclear/internal/domain"
@@ -36,6 +38,35 @@ func TestGroupIncompleteAndUnboundProcessesCannotDisappear(test *testing.T) {
 		actual := Group([]domain.Worktree{{Path: path}}, collection, nil)
 		if len(actual[path].Processes) == 0 || actual[path].Processes[0].State != domain.EvidenceUnknown {
 			test.Fatalf("dropped unknown process evidence: %#v", actual)
+		}
+	}
+}
+
+func TestGroupPreservesCollectorEnumerationFailureOnce(test *testing.T) {
+	worktrees := []domain.Worktree{{Path: test.TempDir()}, {Path: test.TempDir()}}
+	collection, failures := (process.Collector{}).Collect(context.Background(), worktrees)
+	if collection.Complete || len(failures) == 0 || len(collection.GlobalUnknown) != 1 {
+		test.Fatalf("expected a collector enumeration failure: %#v, %v", collection, failures)
+	}
+	actual := Group(worktrees, collection, nil)
+	for _, worktree := range worktrees {
+		if !reflect.DeepEqual(actual[worktree.Path].Processes, collection.GlobalUnknown) {
+			test.Errorf("enumeration failure changed during correlation: got %#v, want %#v", actual[worktree.Path].Processes, collection.GlobalUnknown)
+		}
+	}
+}
+
+func TestGroupIncompleteEnumerationRetainsFallbackForProcessRecords(test *testing.T) {
+	path := test.TempDir()
+	for _, record := range []domain.ProcessEvidence{
+		{PID: 42, State: domain.EvidenceUnknown, Error: "process inspection denied"},
+		{State: domain.EvidenceInactive},
+		{State: domain.EvidenceUnknown},
+	} {
+		collection := process.Collection{GlobalUnknown: []domain.ProcessEvidence{record}}
+		actual := Group([]domain.Worktree{{Path: path}}, collection, nil)[path].Processes
+		if len(actual) != 2 || !reflect.DeepEqual(actual[0], record) || actual[1].PID != 0 || actual[1].State != domain.EvidenceUnknown || actual[1].Error != "process enumeration is incomplete" {
+			test.Fatalf("incomplete enumeration lost its fallback: %#v", actual)
 		}
 	}
 }

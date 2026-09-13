@@ -154,6 +154,45 @@ func TestScanIncompleteEvidenceIsProtected(test *testing.T) {
 	}
 }
 
+func TestScanCollectionErrorsDoNotInventProcessEvidence(test *testing.T) {
+	for _, source := range []string{"inventory", "process inspection"} {
+		test.Run(source, func(test *testing.T) {
+			dependencies, inventory := scanFixture(test)
+			first := inventory.worktrees[0].Path
+			other := inventory.worktrees[0]
+			other.Path = filepath.Join(dependencies.WorkingDirectory, "other")
+			inventory.worktrees = append(inventory.worktrees, other)
+			warning := source + " denied"
+			collector := processStub{collection: process.Collection{Complete: true}}
+			var localEvidence []domain.ProcessEvidence
+			if source == "inventory" {
+				inventory.errors = []error{errors.New(warning)}
+			} else {
+				localEvidence = []domain.ProcessEvidence{{PID: 42, State: domain.EvidenceUnknown, Error: warning}}
+				collector.collection.ByWorktree = map[string][]domain.ProcessEvidence{first: localEvidence}
+				collector.errors = []error{errors.New(warning)}
+			}
+			dependencies.Processes = collector
+			result, _, err := runScan(test, dependencies)
+			if err == nil || result.Complete || len(result.Worktrees) != 2 {
+				test.Fatalf("incomplete scan = %#v, error = %v", result, err)
+			}
+			for _, item := range result.Worktrees {
+				wantProcesses := []domain.ProcessEvidence{}
+				if item.Worktree.Path == first {
+					wantProcesses = append(wantProcesses, localEvidence...)
+				}
+				if !reflect.DeepEqual(item.Evidence.Processes, wantProcesses) {
+					test.Errorf("collection error changed process evidence: got %#v, want %#v", item.Evidence.Processes, wantProcesses)
+				}
+				if item.Decision.Classification != domain.Protected || !reflect.DeepEqual(item.Evidence.Warnings, []string{warning}) {
+					test.Errorf("collection failure was not retained as protective warning: %#v", item)
+				}
+			}
+		})
+	}
+}
+
 func TestScanHumanEscapesControlCharacters(test *testing.T) {
 	dependencies, inventory := scanFixture(test)
 	inventory.worktrees[0].Path += "\nname\x1b[31m"

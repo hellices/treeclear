@@ -188,12 +188,11 @@ func scan(ctx context.Context, dependencies Dependencies, configuration config.C
 	if err := ctx.Err(); err != nil {
 		collectionErrors = append(collectionErrors, err)
 	}
-	if len(collectionErrors) != 0 {
-		processes.Complete = false
+	collectionWarnings := make([]string, len(collectionErrors))
+	for index, err := range collectionErrors {
+		collectionWarnings[index] = err.Error()
 	}
-	for _, err := range collectionErrors {
-		result.Warnings = append(result.Warnings, err.Error())
-	}
+	result.Warnings = append(result.Warnings, collectionWarnings...)
 	result.Complete = len(collectionErrors) == 0 && processes.Complete
 	evidence := correlate.Group(worktrees, processes, nil)
 	settings := domain.PolicySettings{
@@ -204,6 +203,7 @@ func scan(ctx context.Context, dependencies Dependencies, configuration config.C
 	sort.Slice(worktrees, func(left, right int) bool { return worktrees[left].Path < worktrees[right].Path })
 	for _, worktree := range worktrees {
 		collected := evidence[worktree.Path]
+		collected.Warnings = append(collected.Warnings, collectionWarnings...)
 		result.Worktrees = append(result.Worktrees, ScanWorktree{
 			Worktree: worktree, Evidence: collected,
 			Decision: policy.Evaluate(worktree, collected, domain.Policy{Now: result.CollectedAt, Settings: settings}),

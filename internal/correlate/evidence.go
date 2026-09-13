@@ -2,6 +2,7 @@ package correlate
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/hellices/treeclear/internal/domain"
@@ -10,7 +11,10 @@ import (
 
 func Group(worktrees []domain.Worktree, processes process.Collection, agents []domain.AgentEvidence) map[string]domain.EvidenceSet {
 	global := append([]domain.ProcessEvidence(nil), processes.GlobalUnknown...)
-	if !processes.Complete {
+	hasEnumerationFailure := slices.ContainsFunc(global, func(evidence domain.ProcessEvidence) bool {
+		return evidence.PID == 0 && evidence.State == domain.EvidenceUnknown && evidence.Error != ""
+	})
+	if !processes.Complete && !hasEnumerationFailure {
 		global = append(global, domain.ProcessEvidence{State: domain.EvidenceUnknown, Error: "process enumeration is incomplete"})
 	}
 	represented := make(map[int32]bool)

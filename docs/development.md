@@ -45,6 +45,9 @@ CLI supplies no agent-provider evidence.
 
 This preview conservatively protects every returned worktree when a scan is
 incomplete, even if an individual inspection failure can be localized.
+Scan-wide failures are retained as evidence warnings without changing the
+collector's process-enumeration completeness. Correlation preserves the
+collector's global unknown failure record, adding a fallback only when missing.
 
 ## Delivery
 
