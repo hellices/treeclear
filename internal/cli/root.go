@@ -37,6 +37,8 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 	root.SetErr(dependencies.Stderr)
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.AddCommand(newScanCommand(dependencies))
+	root.AddCommand(newPlanCommand(dependencies))
+	root.AddCommand(newExplainCommand(dependencies))
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print the Treeclear version",

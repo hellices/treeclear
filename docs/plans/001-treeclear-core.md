@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 7B private plan storage and integrity
+- Status: In progress — Task 7C plan builder and inspection commands
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,12 +12,12 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, and #3 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, and #4 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
-candidate fingerprints and policy digests are delivered. The current Task 7B
-slice adds private plan storage and local HMAC authentication. Task 7C plan
-building and `plan`/`explain` commands, plus Tasks 8–11 cleanup and recovery,
-remain pending. Each slice keeps its safety contract independently reviewable.
+candidate fingerprints and policy digests, and Task 7B's private authenticated
+plan storage are delivered. The current Task 7C slice adds plan building and
+the `plan`/`explain` commands. Tasks 8–11 cleanup and recovery remain pending.
+Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
 
@@ -1530,9 +1530,9 @@ Reviewable delivery slices:
 
 - **7A (merged, PR #3):** `CandidateFingerprint` and `PolicyDigest`, deterministic
   precondition encoding, and focused mutation/canonicalization tests.
-- **7B (current):** private filesystem storage, local HMAC integrity, expiry,
+- **7B (merged, PR #4):** private filesystem storage, local HMAC integrity, expiry,
   and tamper rejection on native macOS and Windows.
-- **7C (pending):** builder integration and the `plan`/`explain` CLI commands.
+- **7C (current):** builder integration and the `plan`/`explain` CLI commands.
 
 The combined Task 7 checkboxes below remain open until all slices are delivered.
 7B accepts already constructed plans; it does not build a plan, expose a new
@@ -1895,6 +1895,37 @@ treeclear explain <candidate-id> [--plan <id-or-path>] [--format human|json]
 `--root` is repeatable. `--inactivity-threshold` uses `config.Duration`.
 `--output` writes the same canonical plan bytes saved by `plan.Store`; it does
 not bypass private canonical storage.
+
+Task 7C execution details:
+
+- Builder requests contain explicit policy settings and apply mode. Invalid
+  requests and cancellation return no usable plan. Collection failures instead
+  produce an inspectable, blocked plan and an error; the CLI saves and prints
+  that plan but exits unsuccessfully. Collection diagnostics never enable a
+  removal action. The core-only adapter limitation remains visible.
+- Candidate IDs are stable for a worktree identity; plan IDs combine canonical
+  content with fresh cryptographic randomness. Fingerprints include the final
+  decision, action, and snapshot requirements. Only safe candidates default to
+  `remove`, with a required snapshot; all other actions are `none`.
+- Default `explain` selects by authenticated generation time, not filesystem
+  timestamps, with plan ID as a deterministic tie breaker. Only authenticated
+  expired plans are skipped. Malformed, inaccessible, or unauthenticated plan
+  documents stop selection rather than silently falling back. It never falls
+  back to an older plan merely to find the requested candidate.
+- Explicit `explain --plan` does not collect Git/process state or re-evaluate
+  current configuration. It displays the authenticated plan's recorded reasons
+  and evidence. Missing state is an error, not a reason to initialize storage.
+- Exports are independent private copies with exclusive publication, not hard
+  links to the canonical plan and not overwrite operations. Existing export
+  parent permissions are preserved; only newly created parent directories are
+  private. An export/output failure does not delete an already saved plan.
+  Export staging stays inside private state rather than in a potentially
+  shared destination directory. State and export must be on the same
+  filesystem for exclusive hard-link publication; cross-filesystem exports
+  fail closed without falling back to an unsafe copy.
+- Verification uses the existing temporary Git fixtures, synthetic process
+  sources, injected clocks and native CI; no new harness framework or real
+  workspace smoke test is added.
 
 - [ ] **Step 4: Run targeted, full, and command smoke tests**
 

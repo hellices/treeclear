@@ -167,6 +167,10 @@ func validateStoredPlan(value domain.Plan, now time.Time) error {
 	return nil
 }
 
+func IsID(identifier string) bool {
+	return validPlanID(identifier)
+}
+
 func validPlanID(identifier string) bool {
 	if !strings.HasPrefix(identifier, "plan_") || len(identifier) <= 5 || len(identifier) > 128 {
 		return false

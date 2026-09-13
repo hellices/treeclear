@@ -92,7 +92,7 @@ func TestScanUsesDurationOverride(test *testing.T) {
 	if err != nil || len(result.Worktrees) != 1 || result.Worktrees[0].Decision.Reasons[0].Code != "recent" {
 		test.Fatalf("scan = %#v, error = %v", result, err)
 	}
-	if !reflect.DeepEqual(inventory.roots, []string{dependencies.WorkingDirectory}) {
+	if len(inventory.roots) != 1 || filepath.Clean(inventory.roots[0]) != dependencies.WorkingDirectory {
 		test.Fatalf("configured roots = %q", inventory.roots)
 	}
 }

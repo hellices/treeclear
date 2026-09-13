@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -101,26 +100,9 @@ func newScanCommand(dependencies Dependencies) *cobra.Command {
 
 func scanConfiguration(dependencies Dependencies, overrides config.Overrides) (config.Config, Dependencies, error) {
 	var err error
-	if dependencies.WorkingDirectory == "" {
-		dependencies.WorkingDirectory, err = os.Getwd()
-		if err != nil {
-			return config.Config{}, dependencies, err
-		}
-	}
-	if dependencies.UserConfigPath == "" || dependencies.DataDirectory == "" {
-		directory, err := os.UserConfigDir()
-		if err != nil {
-			return config.Config{}, dependencies, err
-		}
-		if dependencies.UserConfigPath == "" {
-			dependencies.UserConfigPath = filepath.Join(directory, "treeclear", "config.toml")
-		}
-		if dependencies.DataDirectory == "" {
-			dependencies.DataDirectory = filepath.Join(directory, "treeclear")
-		}
-	}
-	if dependencies.RepositoryConfigPath == "" {
-		dependencies.RepositoryConfigPath = filepath.Join(dependencies.WorkingDirectory, "treeclear.toml")
+	dependencies, err = resolveDependencies(dependencies)
+	if err != nil {
+		return config.Config{}, dependencies, err
 	}
 	configuration, err := config.Load(dependencies.UserConfigPath, dependencies.RepositoryConfigPath, overrides)
 	if err != nil {
@@ -131,7 +113,7 @@ func scanConfiguration(dependencies Dependencies, overrides config.Overrides) (c
 			return config.Config{}, dependencies, errors.New("configured roots must not be empty")
 		}
 		if !filepath.IsAbs(root) {
-			configuration.Roots[index] = filepath.Join(dependencies.WorkingDirectory, root)
+			configuration.Roots[index] = dependencies.WorkingDirectory + string(filepath.Separator) + root
 		}
 	}
 	return configuration, dependencies, nil
