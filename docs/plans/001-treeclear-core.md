@@ -2362,6 +2362,15 @@ full-repository commands pass, with empty formatting and diff-check output.
 These are local results, not native Windows evidence or independent approval.
 No timed fuzz run was performed, and the earlier Task8A timeout is unresolved.
 
+PR #10 review coverage follow-up: a global-tar-header concern was checked
+against the unchanged implementation and Go 1.26.5's standard reader. Twelve
+fixtures with empty, owner or path global metadata before, between, after or
+repeated among valid files are rejected with nil output. A permanent regression
+test also asserts that the standard reader exposes each global header. This
+adds coverage for an already-rejected input, not a new behavioral fix or RED
+claim, and does not introduce a raw tar parser. Independent re-review and
+native CI on the updated head remain required.
+
 - [ ] Create a Task8D PR, repeat independent review until clean, and verify
   native macOS/Windows CI on its final head before the authorized merge.
 - [ ] Verify native macOS/Windows CI on the merge commit before the next slice.
