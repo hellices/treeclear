@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/hellices/treeclear/internal/gitref"
 )
 
 type rawWorktree struct {
@@ -40,7 +42,7 @@ func parseWorktreePorcelainZ(contents []byte) ([]rawWorktree, error) {
 				worktree.Head = value
 			case "branch":
 				branch, found := strings.CutPrefix(value, "refs/heads/")
-				if !found || branch == "" {
+				if !found || !gitref.ValidBranchName(branch) {
 					return nil, fmt.Errorf("invalid worktree branch %q", value)
 				}
 				worktree.Branch = branch
@@ -65,7 +67,7 @@ func parseWorktreePorcelainZ(contents []byte) ([]rawWorktree, error) {
 			if worktree.Head != "" || worktree.Branch != "" || worktree.Detached {
 				return nil, errors.New("bare worktree has conflicting branch metadata")
 			}
-		} else if worktree.Head == "" || (worktree.Branch == "") == !worktree.Detached {
+		} else if !validPorcelainObjectID(worktree.Head) || (worktree.Branch == "") == !worktree.Detached {
 			return nil, errors.New("worktree HEAD or branch state is ambiguous")
 		}
 		paths[worktree.Path] = true

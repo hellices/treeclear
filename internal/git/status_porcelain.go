@@ -35,16 +35,33 @@ func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
 				fieldCount = 11
 			}
 			fields := strings.SplitN(record, " ", fieldCount)
-			if len(fields) != fieldCount || fields[fieldCount-1] == "" || !validStatusCode(fields[1]) || !validSubmoduleCode(fields[2]) {
+			if len(fields) != fieldCount || fields[fieldCount-1] == "" || !validStatusCode(record[0], fields[1]) || !validSubmoduleCode(fields[2]) {
 				return domain.GitStatus{}, fmt.Errorf("malformed Git status record %q", record)
 			}
+			if fields[1] == ".." && (fields[2] == "N..." || fields[2] == "S...") {
+				return domain.GitStatus{}, errors.New("Git status record has no changes")
+			}
+			modeEnd, objectIDEnd := 6, 8
+			if record[0] == 'u' {
+				modeEnd, objectIDEnd = 7, 10
+			}
+			for fieldIndex := 3; fieldIndex < modeEnd; fieldIndex++ {
+				mode := fields[fieldIndex]
+				if !validPorcelainMode(mode, fieldIndex == modeEnd-1) {
+					return domain.GitStatus{}, fmt.Errorf("invalid Git status mode %q", mode)
+				}
+			}
+			objectIDWidth := len(fields[modeEnd])
+			for _, objectID := range fields[modeEnd:objectIDEnd] {
+				if !validPorcelainObjectID(objectID) || len(objectID) != objectIDWidth {
+					return domain.GitStatus{}, fmt.Errorf("invalid Git status object ID %q", objectID)
+				}
+			}
 			if record[0] == '2' {
-				score := fields[8]
-				if len(score) < 2 || !strings.ContainsRune("RC", rune(score[0])) {
+				if !validRenameScore(fields[1], fields[8]) {
 					return domain.GitStatus{}, errors.New("invalid Git rename score")
 				}
-				percentage, err := strconv.Atoi(score[1:])
-				if err != nil || percentage < 0 || percentage > 100 || index+1 >= len(records) || records[index+1] == "" {
+				if index+1 >= len(records) || records[index+1] == "" {
 					return domain.GitStatus{}, errors.New("incomplete Git rename record")
 				}
 				index++
@@ -66,8 +83,34 @@ func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
 	return status, nil
 }
 
-func validStatusCode(code string) bool {
-	return len(code) == 2 && strings.ContainsRune(".MADRCUT", rune(code[0])) && strings.ContainsRune(".MADRCUT", rune(code[1]))
+func validStatusCode(kind byte, code string) bool {
+	if len(code) != 2 {
+		return false
+	}
+	if kind == 'u' {
+		switch code {
+		case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+			return true
+		default:
+			return false
+		}
+	}
+	allowed := ".MADT"
+	if kind == '2' {
+		allowed += "RC"
+	}
+	return strings.ContainsRune(allowed, rune(code[0])) && strings.ContainsRune(allowed, rune(code[1]))
+}
+
+func validRenameScore(code, score string) bool {
+	if len(code) != 2 || len(score) < 2 || !strings.ContainsRune("RC", rune(score[0])) {
+		return false
+	}
+	if !(code[0] == score[0] && strings.ContainsRune(".MADT", rune(code[1])) || code[1] == score[0] && strings.ContainsRune(".MADT", rune(code[0]))) {
+		return false
+	}
+	percentage, err := strconv.Atoi(score[1:])
+	return err == nil && percentage >= 0 && percentage <= 100 && score[1:] == strconv.Itoa(percentage)
 }
 
 func validSubmoduleCode(code string) bool {

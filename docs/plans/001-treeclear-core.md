@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8A snapshot integrity foundation
+- Status: In progress — Task 8B raw Git snapshot reads
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,14 +12,16 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, and #6 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, and #7 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
 delivered. Task 7D's ancestor-creation race correction also passed independent
-review and native macOS/Windows CI, including its merge commit. Task 8A now
-implements the pure snapshot-integrity foundation. Task 8 capture, publication
-and restore, and Tasks 9–11 cleanup and recovery remain pending.
+review and native macOS/Windows CI, including its merge commit. Task 8A's pure
+snapshot-integrity foundation also passed independent review and native CI on
+both the final head and merge commit. Task 8B adds narrow raw Git reads.
+Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
+recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
@@ -892,19 +894,18 @@ git commit -m "feat: define core safety schemas"
 Use a NUL-delimited fixture that includes spaces and a locked reason:
 
 ```go
-func TestParseWorktreePorcelainZ(t *testing.T) {
-	input := []byte("worktree /tmp/main repo\x00HEAD abc123\x00branch refs/heads/main\x00\x00" +
-		"worktree /tmp/feature\nname\x00HEAD def456\x00branch refs/heads/feature\x00locked agent active\x00\x00")
-
-	got, err := parseWorktreePorcelainZ(input)
-	if err != nil {
-		t.Fatal(err)
+func TestParseWorktreePorcelainZ(test *testing.T) {
+	head := strings.Repeat("a", 40)
+	otherHead := strings.Repeat("b", 40)
+	input := []byte("worktree /tmp/main repo\x00HEAD " + head + "\x00branch refs/heads/main\x00\x00" +
+		"worktree /tmp/feature\nname\x00HEAD " + otherHead + "\x00branch refs/heads/feature\x00locked agent active\x00\x00")
+	actual, err := parseWorktreePorcelainZ(input)
+	want := []rawWorktree{
+		{Path: "/tmp/main repo", Head: head, Branch: "main"},
+		{Path: "/tmp/feature\nname", Head: otherHead, Branch: "feature", Locked: true, LockReason: "agent active"},
 	}
-	if diff := cmp.Diff([]rawWorktree{
-		{Path: "/tmp/main repo", Head: "abc123", Branch: "main"},
-		{Path: "/tmp/feature\nname", Head: "def456", Branch: "feature", Locked: true, LockReason: "agent active"},
-	}, got); diff != "" {
-		t.Fatalf("worktrees mismatch (-want +got):\n%s", diff)
+	if err != nil || !reflect.DeepEqual(actual, want) {
+		test.Fatalf("parsed = %#v, error = %v", actual, err)
 	}
 }
 ```
@@ -2071,6 +2072,85 @@ Still required before Task 9: narrow raw Git/admin capture, coherent before/afte
 revalidation, safe untracked archives with modes and symlinks, sensitive and
 oversize preflight, detached recovery refs, private fsync/atomic publication,
 receipt commitments, repository/branch/target checks and byte-for-byte restore.
+
+### Task 8B execution slice: narrow raw Git reads
+
+This prerequisite extends the existing guarded `git.Client`; it does not add a
+generic command API, snapshot capture, receipt, publication, restore or apply.
+
+```go
+func (client *Client) ListWorktreesRaw(ctx context.Context, repository string) ([]domain.Worktree, []byte, error)
+func (client *Client) StatusRaw(ctx context.Context, worktree string) (domain.GitStatus, []byte, error)
+```
+
+Each method returns parsed values and exact porcelain bytes from the same
+single collection. Existing `ListWorktrees` and `Status` retain their signatures
+and delegate to that path without duplicate Git commands. Preserve NULs,
+whitespace and raw pathname bytes without trimming, normalization or re-encoding
+of the raw payload. Parsed worktree paths retain the existing native-path
+conversion. Any guard, command, parser or common-directory lookup failure
+returns no raw bytes or partial parsed result. `Diff` similarly discards partial
+stdout on failure while preserving successful staged/unstaged binary patches.
+
+Keep shell-free argv, sanitized environment, bounded output and timeout,
+offline reads, executable-filter and unsafe-index rejection, safe diff flags,
+and primary/bare inventory rules. An expected quiet exit-one from the filter
+lookup or detached-HEAD lookup must have empty output, including diagnostic
+stderr carried by a native exit error, and a matching native process exit or
+explicit status reported without a runner error. Transport,
+wait-delay, joined, unknown or conflicting failures remain errors; an exit
+code alone must not authorize continuing collection.
+Validate status mode/object-ID metadata and
+worktree HEAD object-ID and supported short-branch syntax before exposing
+parsed/raw results. Unknown or malformed record forms fail closed. Preserve
+legitimate SHA-1/SHA-256 widths,
+zero IDs for absent/unborn state, rename/copy records, and unmerged stage
+metadata; the snapshot manifest separately requires a known nonzero HEAD.
+These reads do not prove physical repository identity or capture coherence.
+Mode fields accept canonical Git encodings; object IDs accept ASCII hex with a
+consistent width within each status record. Rename scores use canonical decimal
+0–100 and must agree with the record's rename/copy status. Known ordinary `DA`
+and `DD`, worktree-side renames/copies, and absent-stage modes remain supported.
+Only the final worktree-side mode field may contain `040000`; stored HEAD,
+index and unmerged-stage mode fields reject it. Native macOS Git can emit it for
+an accessible embedded repository replacing an indexed regular file when an ACL
+grants access despite zero POSIX permission bits. It appears in both ordinary
+and unmerged records without a sparse index. This syntactic compatibility does
+not establish that an embedded repository is a safe cleanup target.
+The porcelain parser and snapshot manifest share `gitref.ValidBranchName`:
+bounded (1,024-byte), UTF-8, literal short branch names, including `@`, with no
+checkout-expression expansion. This is the existing snapshot-supported profile,
+not a claim to accept every lower-level Git reference spelling. In particular,
+short-branch rules are stricter than validating an arbitrary full ref.
+
+Harness assessment: existing `runnerFunc`, `internal/testutil` temporary Git
+fixtures, standard Go unit/fuzz tests and native macOS/Windows CI suffice.
+No new framework, dependency, real workspace, agent database or scheduler job is
+needed. The fixture `Repository.Git` trims surrounding whitespace, so exact-byte
+tests capture the real runner's output rather than treating that helper's return
+value as a universally exact raw oracle.
+Native temporary fixtures cover SHA-1 and SHA-256 repositories, staged/unstaged
+binary patches, rename source paths, unmerged stage metadata, unborn/intent-to-add
+state and unchanged index bytes. Pure fuzz tests exercise both porcelain parsers.
+The unmerged fixture table names each conflict code and its stage-presence mask
+explicitly. This clarifies the already-correct mapping; it does not change the
+effective stage combinations previously tested.
+
+- [x] Write failing raw-byte, failure-output and malformed-protocol regressions.
+- [x] Implement shared guarded reads and the relevant parser checks.
+- [x] Verify binary patches, rename and unmerged metadata in isolated Git fixtures.
+- [x] Run full normal/race/vet/build/format checks and native macOS/Windows CI on
+  implementation head `64a4f84` (CI run `34776255641`).
+- [x] Close the review follow-up on unsupported porcelain branch names using
+  the shared snapshot-supported profile and raw-boundary regressions.
+- [x] Reproduce and correct exit-one execution-error handling and misplaced
+  directory-mode acceptance, preserving native quiet exits and worktree modes.
+- [ ] Repeat independent review until clean, verify the final revised head on
+  native macOS/Windows CI, then merge and verify the merge commit.
+
+Remaining Task 8 lifecycle work listed above stays pending; Task 9 is not ready.
+
+### Remaining Task 8 lifecycle
 
 **Files:**
 - Create: `internal/snapshot/manifest.go`
