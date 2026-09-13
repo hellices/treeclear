@@ -295,6 +295,13 @@ func buildWorktreeProblems(worktree domain.Worktree) []error {
 	if !worktree.GitStateKnown || worktree.LastCommitAt.IsZero() || worktree.MetadataModifiedAt.IsZero() {
 		failures = append(failures, errors.New("Git collection is incomplete"))
 	}
+	for _, proof := range []struct{ name, value string }{
+		{"HEAD", worktree.Head}, {"index hash", worktree.IndexHash}, {"administrative hash", worktree.AdminHash},
+	} {
+		if proof.value == "" {
+			failures = append(failures, fmt.Errorf("required Git %s is missing", proof.name))
+		}
+	}
 	if worktree.EstimatedBytes < 0 || worktree.Status.Staged < 0 || worktree.Status.Unstaged < 0 || worktree.Status.Unmerged < 0 || worktree.Status.Untracked < 0 {
 		failures = append(failures, errors.New("Git collection contains a negative size or status count"))
 	}

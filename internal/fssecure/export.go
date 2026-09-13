@@ -19,6 +19,10 @@ func WritePrivateExport(stagingDirectory, destination string, contents []byte) e
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	stagingDirectory, err = privatePath(stagingDirectory)
+	if err != nil {
+		return err
+	}
 	if err := EnsurePrivateDirectory(stagingDirectory); err != nil {
 		return err
 	}

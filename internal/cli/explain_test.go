@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -127,5 +128,23 @@ func TestExplainExportFilenameMatchingIDNeedsDisambiguation(test *testing.T) {
 	output, _, err = runExplain(dependencies, value.Candidates[0].ID, "--plan", "./plan_export", "--format", "json")
 	if err != nil || len(output) == 0 {
 		test.Fatalf("explicit relative path did not resolve: %q, %v", output, err)
+	}
+}
+
+func TestExplainRejectsAmbiguousAuthenticatedCandidateIDs(test *testing.T) {
+	dependencies, _ := planFixture(test)
+	value, _, _, err := runPlan(test, dependencies)
+	if err != nil {
+		test.Fatal(err)
+	}
+	value.ID = "plan_ambiguous"
+	value.Candidates = append(value.Candidates, value.Candidates[0])
+	store := plan.NewStore(dependencies.DataDirectory, dependencies.Now, nil)
+	if _, err := store.Save(context.Background(), value); err != nil {
+		test.Fatal(err)
+	}
+	output, _, err := runExplain(dependencies, value.Candidates[0].ID, "--plan", value.ID, "--format", "json")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") || len(output) != 0 {
+		test.Fatalf("ambiguous explain = %q, %v", output, err)
 	}
 }

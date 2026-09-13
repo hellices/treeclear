@@ -397,6 +397,56 @@ func TestBuilderWorktreeErrorsBlockEvenWhenGitStateClaimsKnown(test *testing.T) 
 	}
 }
 
+func TestBuilderMissingGitProofsProtectOnlyAffectedWorktrees(test *testing.T) {
+	scenarios := []struct {
+		name       string
+		diagnostic string
+		clear      func(*domain.Worktree)
+	}{
+		{"Head", "HEAD", func(worktree *domain.Worktree) { worktree.Head = "" }},
+		{"IndexHash", "index hash", func(worktree *domain.Worktree) { worktree.IndexHash = "" }},
+		{"AdminHash", "administrative hash", func(worktree *domain.Worktree) { worktree.AdminHash = "" }},
+	}
+	for _, scenario := range scenarios {
+		test.Run(scenario.name, func(test *testing.T) {
+			builder, request, base, _ := builderFixture(test)
+			worktrees := []domain.Worktree{builderSibling(base, "a-missing-proof"), builderSibling(base, "b-healthy")}
+			builder.Inventory = builderInventoryFunc(func(context.Context, []string) ([]domain.Worktree, []error) {
+				return worktrees, nil
+			})
+			before, err := builder.Build(context.Background(), request)
+			if err != nil || before.Summary.Safe != 2 {
+				test.Fatalf("complete proofs = %#v, %v", before.Summary, err)
+			}
+			scenario.clear(&worktrees[0])
+			value, err := builder.Build(context.Background(), request)
+			if err == nil || !validPlanID(value.ID) || len(value.Candidates) != 2 {
+				test.Fatalf("missing %s: summary = %#v, error = %v; want inspectable plan and error", scenario.name, value.Summary, err)
+			}
+			candidate := value.Candidates[0]
+			if candidate.Decision.Classification != domain.Protected || candidate.Action != "none" || candidate.Snapshot.Required {
+				test.Fatalf("missing %s did not protect worktree: %#v", scenario.name, candidate)
+			}
+			if !candidate.Worktree.GitStateKnown || !reflect.DeepEqual(candidate.Worktree, worktrees[0]) {
+				test.Fatalf("missing proof changed collected Git state: %#v", candidate.Worktree)
+			}
+			if !strings.Contains(err.Error(), scenario.diagnostic) || !strings.Contains(strings.Join(value.Warnings, "\n"), scenario.diagnostic) || !strings.Contains(strings.Join(candidate.Evidence.Warnings, "\n"), scenario.diagnostic) {
+				test.Fatalf("missing %s diagnostic: error = %v, plan = %v, evidence = %v", scenario.name, err, value.Warnings, candidate.Evidence.Warnings)
+			}
+			if !reflect.DeepEqual(value.Candidates[1], before.Candidates[1]) {
+				test.Fatalf("missing proof changed healthy candidate: %#v", value.Candidates[1])
+			}
+			if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) {
+				test.Fatalf("missing proof summary = %#v", value.Summary)
+			}
+			if candidate.ID != before.Candidates[0].ID || candidate.Fingerprint == before.Candidates[0].Fingerprint {
+				test.Fatalf("missing proof identity/fingerprint = %#v", candidate)
+			}
+			requireBuilderFingerprints(test, value)
+		})
+	}
+}
+
 func TestBuilderStableCandidateIDsOrderAndUniquePlanIDs(test *testing.T) {
 	builder, request, first, _ := builderFixture(test)
 	worktrees := []domain.Worktree{builderSibling(first, "z-last"), builderSibling(first, "a-first")}

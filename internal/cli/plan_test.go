@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -233,5 +234,49 @@ func TestExplainFailureDoesNotCreateState(test *testing.T) {
 		if _, err := os.Stat(dependencies.DataDirectory); !errors.Is(err, fs.ErrNotExist) {
 			test.Fatalf("explain created state: %v", err)
 		}
+	}
+}
+
+func TestPlanHumanOutputEscapesPathsAndBranchNames(test *testing.T) {
+	dependencies, inventory := planFixture(test)
+	inventory.worktrees[0].Branch = "topic\x1b[31m"
+	var stdout, stderr bytes.Buffer
+	dependencies.Stdout, dependencies.Stderr = &stdout, &stderr
+	command := NewRootCommand(dependencies)
+	command.SetArgs([]string{"plan"})
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		test.Fatal(err)
+	}
+	for _, want := range []string{"CANDIDATE", "CLASSIFICATION", "Safe: 1", "No worktrees were removed.", `topic\x1b[31m`} {
+		if !strings.Contains(stdout.String(), want) {
+			test.Errorf("human plan lacks %q: %s", want, stdout.String())
+		}
+	}
+	if strings.ContainsRune(stdout.String(), '\x1b') || !strings.Contains(stderr.String(), "Core-only") {
+		test.Fatalf("unsafe human output or missing diagnostics: %q, %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestPlanOutputFailuresPreserveCanonicalStorage(test *testing.T) {
+	for _, failing := range []string{"stdout", "stderr"} {
+		test.Run(failing, func(test *testing.T) {
+			dependencies, _ := planFixture(test)
+			var output bytes.Buffer
+			dependencies.Stdout, dependencies.Stderr = &output, &output
+			if failing == "stdout" {
+				dependencies.Stdout = failingWriter{}
+			} else {
+				dependencies.Stderr = failingWriter{}
+			}
+			command := NewRootCommand(dependencies)
+			command.SetArgs([]string{"plan", "--format", "json"})
+			if err := command.ExecuteContext(context.Background()); !errors.Is(err, io.ErrClosedPipe) || !strings.Contains(err.Error(), "saved") {
+				test.Fatalf("failed output error = %v", err)
+			}
+			entries, err := os.ReadDir(filepath.Join(dependencies.DataDirectory, "plans"))
+			if err != nil || len(entries) != 1 {
+				test.Fatalf("output failure lost saved plan: %v, %v", entries, err)
+			}
+		})
 	}
 }
