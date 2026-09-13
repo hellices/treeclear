@@ -93,18 +93,19 @@ func TestReadPrivateFileUnixRejectsFIFOWithoutBlocking(test *testing.T) {
 	if err := unix.Mkfifo(path, 0o600); err != nil {
 		test.Fatal(err)
 	}
-	finished := make(chan error, 1)
+	type readResult struct {
+		contents []byte
+		err      error
+	}
+	finished := make(chan readResult, 1)
 	go func() {
 		contents, err := ReadPrivateFile(path, 32)
-		if contents != nil {
-			err = fmt.Errorf("returned contents from FIFO: %q", contents)
-		}
-		finished <- err
+		finished <- readResult{contents: contents, err: err}
 	}()
 	select {
-	case err := <-finished:
-		if err == nil {
-			test.Fatal("accepted FIFO")
+	case result := <-finished:
+		if result.contents != nil || result.err == nil {
+			test.Fatalf("FIFO ReadPrivateFile = %q, %v; want nil and error", result.contents, result.err)
 		}
 	case <-time.After(time.Second):
 		if descriptor, err := unix.Open(path, unix.O_RDWR|unix.O_NONBLOCK, 0); err == nil {
