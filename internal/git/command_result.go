@@ -23,7 +23,7 @@ func isQuietCommandExit(result execx.Result, err error, exitCode int) bool {
 		case commandExitStatus:
 			return int(status) == exitCode
 		case *exec.ExitError:
-			return status != nil && status.ProcessState != nil && status.ExitCode() == exitCode
+			return status != nil && status.ProcessState != nil && status.ExitCode() == exitCode && len(status.Stderr) == 0
 		}
 	}
 	return false

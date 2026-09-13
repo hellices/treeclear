@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/execx"
@@ -17,8 +19,9 @@ import (
 func TestClientRawReadsDistinguishQuietConfigExit(test *testing.T) {
 	repository := testutil.NewRepository(test)
 	writeRawFixtureFile(test, filepath.Join(repository.Root, "untracked.txt"), []byte("synthetic guard fixture\n"))
+	scenarios := quietExitScenarios(test)
 	for _, operation := range rawReadOperations()[1:] {
-		for _, scenario := range quietExitScenarios() {
+		for _, scenario := range scenarios {
 			test.Run(operation.name+"/"+scenario.name, func(test *testing.T) {
 				client, captured := captureRawFixtureReads(test, repository.Root)
 				runner := client.Runner
@@ -66,7 +69,7 @@ func TestClientInspectionDistinguishesQuietDetachedExit(test *testing.T) {
 	if !candidate.Detached || candidate.Path == "" {
 		test.Fatalf("missing detached fixture: %#v", worktrees)
 	}
-	for _, scenario := range quietExitScenarios() {
+	for _, scenario := range quietExitScenarios(test) {
 		test.Run(scenario.name, func(test *testing.T) {
 			symbolicCalls := 0
 			client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -103,14 +106,22 @@ type quietExitScenario struct {
 	change  func(execx.Result, error) (execx.Result, error)
 }
 
-func quietExitScenarios() []quietExitScenario {
+func quietExitScenarios(test *testing.T) []quietExitScenario {
+	test.Helper()
 	transportFailure := errors.New("synthetic transport failure")
+	diagnosticExit := nativeDiagnosticExit(test)
 	return []quietExitScenario{
 		{"native exit", false, nil, func(result execx.Result, err error) (execx.Result, error) {
 			return result, err
 		}},
 		{"wrapped native exit", false, nil, func(result execx.Result, err error) (execx.Result, error) {
 			return result, fmt.Errorf("process context: %w", err)
+		}},
+		{"native error diagnostic", true, nil, func(result execx.Result, err error) (execx.Result, error) {
+			return result, diagnosticExit
+		}},
+		{"wrapped native error diagnostic", true, nil, func(result execx.Result, err error) (execx.Result, error) {
+			return result, fmt.Errorf("process context: %w", diagnosticExit)
 		}},
 		{"reported exit without runner error", false, nil, func(result execx.Result, err error) (execx.Result, error) {
 			return result, nil
@@ -140,6 +151,34 @@ func quietExitScenarios() []quietExitScenario {
 			return result, errors.New("exit status 1")
 		}},
 	}
+}
+
+func nativeDiagnosticExit(test *testing.T) error {
+	test.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		test.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(test.Context(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, executable, "-test.run=^TestClientQuietExitDiagnosticHelper$", "--", "treeclear-quiet-diagnostic-helper")
+	command.Dir = test.TempDir()
+	command.Env = execx.SanitizedEnvironment(os.Environ(), nil)
+	command.WaitDelay = time.Second
+	output, err := command.Output()
+	var processExit *exec.ExitError
+	if len(output) != 0 || !errors.As(err, &processExit) || processExit.ProcessState == nil || processExit.ExitCode() != 1 || string(processExit.Stderr) != "synthetic process diagnostic\n" {
+		test.Fatalf("fixture did not produce a diagnostic-bearing native exit one: stdout=%q, error=%#v", output, err)
+	}
+	return err
+}
+
+func TestClientQuietExitDiagnosticHelper(test *testing.T) {
+	if os.Args[len(os.Args)-1] != "treeclear-quiet-diagnostic-helper" {
+		return
+	}
+	fmt.Fprint(os.Stderr, "synthetic process diagnostic\n")
+	os.Exit(1)
 }
 
 func assertNativeQuietExitOne(test *testing.T, result execx.Result, err error) {

@@ -2095,8 +2095,9 @@ stdout on failure while preserving successful staged/unstaged binary patches.
 Keep shell-free argv, sanitized environment, bounded output and timeout,
 offline reads, executable-filter and unsafe-index rejection, safe diff flags,
 and primary/bare inventory rules. An expected quiet exit-one from the filter
-lookup or detached-HEAD lookup must have empty output and a matching native
-process exit or explicit status reported without a runner error. Transport,
+lookup or detached-HEAD lookup must have empty output, including diagnostic
+stderr carried by a native exit error, and a matching native process exit or
+explicit status reported without a runner error. Transport,
 wait-delay, joined, unknown or conflicting failures remain errors; an exit
 code alone must not authorize continuing collection.
 Validate status mode/object-ID metadata and
