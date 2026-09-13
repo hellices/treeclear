@@ -61,7 +61,7 @@ func TestPlanAndExplainWindowsRootRelativeFiles(test *testing.T) {
 
 func TestPlanWindowsAnchorsConfiguredPaths(test *testing.T) {
 	for _, kind := range []string{"root_relative", "drive_relative"} {
-		for _, setting := range []string{"root", "state"} {
+		for _, setting := range []string{"root", "state", "user_config", "repository_config"} {
 			test.Run(kind+"_"+setting, func(test *testing.T) {
 				dependencies, _ := planFixture(test)
 				destination := test.TempDir()
@@ -78,16 +78,26 @@ func TestPlanWindowsAnchorsConfiguredPaths(test *testing.T) {
 					reference = volume + relative
 				}
 				overrides := config.Overrides{Roots: []string{dependencies.WorkingDirectory}}
-				if setting == "root" {
+				switch setting {
+				case "root":
 					overrides.Roots = []string{reference}
-				} else {
+				case "state":
 					dependencies.DataDirectory = reference
+				case "user_config":
+					dependencies.UserConfigPath = reference + `\user.toml`
+				case "repository_config":
+					dependencies.RepositoryConfigPath = reference + `\repository.toml`
 				}
 				configuration, runtime, err := scanConfiguration(dependencies, overrides)
 				if err != nil {
 					test.Fatal(err)
 				}
 				actual := runtime.DataDirectory
+				if setting == "user_config" {
+					actual = strings.TrimSuffix(runtime.UserConfigPath, `\user.toml`)
+				} else if setting == "repository_config" {
+					actual = strings.TrimSuffix(runtime.RepositoryConfigPath, `\repository.toml`)
+				}
 				if setting == "root" {
 					_, request, err := configuredPlanBuilder(context.Background(), runtime, configuration)
 					if err != nil || len(request.Roots) != 1 {
@@ -102,5 +112,32 @@ func TestPlanWindowsAnchorsConfiguredPaths(test *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestResolveInputPathWindowsVolumes(test *testing.T) {
+	for _, scenario := range []struct {
+		name, cwd, input, want string
+	}{
+		{"rooted", `C:\work`, `\reports\plan.json`, `C:\reports\plan.json`},
+		{"rooted_slash", `C:\work`, `/reports/plan.json`, `C:/reports/plan.json`},
+		{"same_drive", `C:\work`, `c:alias\..\plan.json`, `C:\work\alias\..\plan.json`},
+		{"drive_only", `C:\work`, `C:`, `C:\work\`},
+		{"absolute_drive", `C:\work`, `D:\alias\..\plan.json`, `D:\alias\..\plan.json`},
+		{"absolute_unc", `C:\work`, `\\server\share\plan.json`, `\\server\share\plan.json`},
+		{"unc_rooted", `\\server\share\work`, `\reports\plan.json`, `\\server\share\reports\plan.json`},
+		{"other_drive_relative", `C:\work`, `D:plan.json`, ""},
+		{"unc_drive_relative", `\\server\share\work`, `C:plan.json`, ""},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			resolved, err := resolveInputPath(scenario.cwd, scenario.input)
+			if scenario.want == "" {
+				if err == nil || !strings.Contains(err.Error(), "absolute path") {
+					test.Fatalf("ambiguous drive input = %q, %v", resolved, err)
+				}
+			} else if err != nil || resolved != scenario.want {
+				test.Fatalf("resolved = %q, want %q: %v", resolved, scenario.want, err)
+			}
+		})
 	}
 }

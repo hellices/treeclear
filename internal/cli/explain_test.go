@@ -7,10 +7,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/plan"
@@ -60,6 +62,63 @@ func TestExplainHumanIncludesCompleteEvidenceAndInactivity(test *testing.T) {
 	}
 	if !bytes.Contains(output, []byte("Inactive for: "+candidate.Decision.InactiveFor.String())) {
 		test.Fatalf("human explain lost inactivity: %s", output)
+	}
+}
+
+func TestExplainHumanEscapesUnicodeControlsWithoutChangingJSON(test *testing.T) {
+	text := "readable 한글 café 😀\u0085\u009b\u00ad\u202e\u2066\u2069\U000e0001"
+	candidate := domain.Candidate{
+		ID: "candidate_test", Worktree: domain.Worktree{Path: text, Branch: text},
+		Evidence: domain.EvidenceSet{
+			Processes: []domain.ProcessEvidence{{PID: 42, Executable: text, Error: text}},
+			Agents:    []domain.AgentEvidence{{AdapterID: "synthetic", Warnings: []string{text}}},
+			Warnings:  []string{text},
+		},
+		Decision: domain.Decision{Reasons: []domain.Reason{{Code: "synthetic", Message: text}}},
+		Snapshot: domain.SnapshotPlan{Required: true},
+	}
+	var machine bytes.Buffer
+	if err := renderExplanation(&machine, "json", "plan_test", candidate); err != nil {
+		test.Fatal(err)
+	}
+	var decoded domain.Candidate
+	if err := json.Unmarshal(machine.Bytes(), &decoded); err != nil || !reflect.DeepEqual(decoded, candidate) {
+		test.Fatalf("machine output changed recorded data: %#v, %v", decoded, err)
+	}
+	var human bytes.Buffer
+	if err := renderExplanation(&human, "human", "plan_test", candidate); err != nil {
+		test.Fatal(err)
+	}
+	for _, character := range human.String() {
+		if character != '\n' && !unicode.IsPrint(character) {
+			test.Fatalf("human output contains terminal control %U: %q", character, human.String())
+		}
+	}
+	for _, escaped := range []string{`\u0085`, `\u009b`, `\u00ad`, `\u202e`, `\u2066`, `\u2069`, `\udb40\udc01`, "readable 한글 café 😀"} {
+		if !strings.Contains(human.String(), escaped) {
+			test.Errorf("human output lacks %q", escaped)
+		}
+	}
+	titles := []string{"Git", "Evidence", "Snapshot"}
+	for index, record := range []any{candidate.Worktree, candidate.Evidence, candidate.Snapshot} {
+		_, section, found := strings.Cut(human.String(), titles[index]+":\n")
+		if !found {
+			test.Fatalf("missing section %q", titles[index])
+		}
+		if index+1 < len(titles) {
+			section, _, _ = strings.Cut(section, "\n"+titles[index+1]+":\n")
+		}
+		var actual, expected any
+		if err := json.Unmarshal([]byte(section), &actual); err != nil {
+			test.Fatalf("human section is not valid JSON: %v", err)
+		}
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			test.Fatal(err)
+		}
+		if err := json.Unmarshal(encoded, &expected); err != nil || !reflect.DeepEqual(actual, expected) {
+			test.Fatalf("human section changed recorded data: %#v, %v", actual, err)
+		}
 	}
 }
 

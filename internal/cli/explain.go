@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf16"
 
 	"github.com/spf13/cobra"
 
@@ -43,8 +45,11 @@ func newExplainCommand(dependencies Dependencies) *cobra.Command {
 				value, err = store.Latest(command.Context())
 			} else {
 				resolved := reference
-				if !plan.IsID(resolved) && !filepath.IsAbs(resolved) {
-					resolved = runtime.WorkingDirectory + string(filepath.Separator) + resolved
+				if !plan.IsID(resolved) {
+					resolved, err = resolveInputPath(runtime.WorkingDirectory, resolved)
+					if err != nil {
+						return err
+					}
 				}
 				value, err = store.Load(command.Context(), resolved)
 			}
@@ -96,9 +101,25 @@ func renderExplanation(output io.Writer, format, planID string, candidate domain
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(output, "%s:\n%s\n", section.title, contents); err != nil {
+		if _, err := fmt.Fprintf(output, "%s:\n%s\n", section.title, escapeJSONControls(contents)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func escapeJSONControls(contents []byte) string {
+	var escaped strings.Builder
+	escaped.Grow(len(contents))
+	for _, character := range string(contents) {
+		if character == '\n' || unicode.IsPrint(character) {
+			escaped.WriteRune(character)
+		} else if character <= 0xffff {
+			fmt.Fprintf(&escaped, `\u%04x`, character)
+		} else {
+			high, low := utf16.EncodeRune(character)
+			fmt.Fprintf(&escaped, `\u%04x\u%04x`, high, low)
+		}
+	}
+	return escaped.String()
 }

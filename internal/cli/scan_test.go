@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hellices/treeclear/internal/domain"
+	"github.com/hellices/treeclear/internal/pathutil"
 	"github.com/hellices/treeclear/internal/process"
 	"github.com/hellices/treeclear/internal/testutil"
 )
@@ -92,7 +93,11 @@ func TestScanUsesDurationOverride(test *testing.T) {
 	if err != nil || len(result.Worktrees) != 1 || result.Worktrees[0].Decision.Reasons[0].Code != "recent" {
 		test.Fatalf("scan = %#v, error = %v", result, err)
 	}
-	if len(inventory.roots) != 1 || filepath.Clean(inventory.roots[0]) != dependencies.WorkingDirectory {
+	workingDirectory, err := pathutil.Canonical(dependencies.WorkingDirectory)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if len(inventory.roots) != 1 || filepath.Clean(inventory.roots[0]) != workingDirectory {
 		test.Fatalf("configured roots = %q", inventory.roots)
 	}
 }

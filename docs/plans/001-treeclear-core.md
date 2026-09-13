@@ -1928,6 +1928,14 @@ Task 7C execution details:
   directory rather than a logical `PWD` alias. Unresolvable traversal fails
   closed; final-object symlinks remain rejected. Final CLI errors are escaped
   at the stderr output boundary, including wrapped filesystem errors.
+- CLI inputs share one physical working-directory anchor, including explicit
+  configuration files. Windows rooted paths use that directory's volume;
+  same-drive relative paths use its directory, without cleaning their suffix.
+  Other-drive relative paths fail closed and require an absolute path rather
+  than guessing another drive's current directory.
+- Human explanation sections escape non-printing Unicode, including bidi and
+  C1 controls, while retaining readable JSON layout. Their decoded data and
+  machine JSON output preserve the complete recorded values.
 - Exports are independent private copies with exclusive publication, not hard
   links to the canonical plan and not overwrite operations. Existing export
   parent permissions are preserved; only newly created parent directories are

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -86,11 +85,11 @@ func newPlanCommand(dependencies Dependencies) *cobra.Command {
 				if err := command.Context().Err(); err != nil {
 					return fmt.Errorf("plan saved at %q; export canceled: %w", path, err)
 				}
-				destination := output
-				if !filepath.IsAbs(destination) {
-					destination = runtime.WorkingDirectory + string(filepath.Separator) + destination
+				destination, err := resolveInputPath(runtime.WorkingDirectory, output)
+				if err == nil {
+					err = fssecure.WritePrivateExport(runtime.DataDirectory, destination, contents)
 				}
-				if err := fssecure.WritePrivateExport(runtime.DataDirectory, destination, contents); err != nil {
+				if err != nil {
 					return fmt.Errorf("plan %s saved at %q; export failed: %w", value.ID, path, err)
 				}
 			}

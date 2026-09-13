@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -112,8 +111,9 @@ func scanConfiguration(dependencies Dependencies, overrides config.Overrides) (c
 		if root == "" {
 			return config.Config{}, dependencies, errors.New("configured roots must not be empty")
 		}
-		if !filepath.IsAbs(root) {
-			configuration.Roots[index] = dependencies.WorkingDirectory + string(filepath.Separator) + root
+		configuration.Roots[index], err = resolveInputPath(dependencies.WorkingDirectory, root)
+		if err != nil {
+			return config.Config{}, dependencies, err
 		}
 	}
 	return configuration, dependencies, nil
