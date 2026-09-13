@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 7D concurrent private-state creation correction
+- Status: In progress — Task 8A snapshot integrity foundation
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,13 +12,14 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, and #5 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, and #6 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
-delivered. A separate Task 7D correction addresses an ancestor-creation race
-found by post-merge native Windows CI. Tasks 8–11 cleanup and recovery remain
-pending; the correction is reviewed and merged before snapshot development.
+delivered. Task 7D's ancestor-creation race correction also passed independent
+review and native macOS/Windows CI, including its merge commit. Task 8A now
+implements the pure snapshot-integrity foundation. Task 8 capture, publication
+and restore, and Tasks 9–11 cleanup and recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
@@ -1997,7 +1998,70 @@ custom filesystem harness or acceptance framework is introduced. Record the
 native failure, local RED/GREEN stress checks and final native CI in the
 corrective PR, then obtain independent review and merge before Task 8.
 
+Delivered in PR #6, merge commit `15a70d15632373bcd34719094015378d9d081b56`.
+Both final-head native CI `34768564097` and post-merge native CI `34769218044`
+passed. Independent AI review and Copilot review had no remaining actionable
+findings; these are not human approval.
+
 ## Task 8: Create private, verified recovery snapshots
+
+### Task 8A execution slice: pure integrity foundation
+
+This slice provides `snapshot.ValidateManifest`, `EncodeManifest`,
+`DecodeManifest`, `VerifyPayloads`, and `plan.EvidenceDigest`. It introduces no
+capture, filesystem/Git mutation, receipt, apply or restore API. Keep the full
+Task 8 steps below pending until the remaining snapshot lifecycle is delivered.
+
+The manifest retains all fields in the sample below and adds `ToolVersion`,
+`PlanSchemaVersion`, `AdminDir`, and `AdministrativeEntries`. The snapshot and
+plan schemas are independently fixed at version 1. Administrative entries
+record relative slash paths, file/directory kinds, original modes and raw
+diagnostic bytes, including an explicit root and nonempty `HEAD`, `commondir`
+and `gitdir` files. An index, when present, is recorded as raw file bytes.
+Administrative records are diagnostic only and must never be replayed into
+live Git metadata.
+
+Encoding normalizes time to UTC and sorts entries without mutating the caller.
+Decoding requires the exact canonical encoding and rejects unknown, duplicate,
+case-aliased, malformed UTF-8 and noncanonical JSON. Bounds are 32 MiB per encoded
+document, 4,096 administrative entries and 16 MiB aggregate administrative
+bytes. A token preflight bounds collections before typed slice/map expansion
+(32 fields per object, 4,096 entries per array, eight collection levels).
+Identifiers and printable ASCII tool versions are bounded to 128 bytes,
+branches to 1,024 bytes, absolute identity paths to 32 KiB and administrative
+relative paths to 4,096 bytes. These serialization bounds do not replace the
+configured payload-size or sensitivity policy.
+
+`pathutil.ValidateAbsoluteForm` checks only the current platform's canonical
+absolute syntax using the existing path preparation rules, with no filesystem
+access. It cannot prove repository identity, existence or symlink resolution.
+Administrative paths reject traversal, nonportable names, duplicate and
+case-folded conflicting identities, missing parents and incompatible modes.
+Physical identity and coherent Git/admin capture remain later responsibilities.
+
+The full evidence digest covers every stored evidence field, including
+planning-only agents, observation times and complete diagnostics. It reuses
+the signed plan's UTC-normalized JSON representation, preserving collection
+order, duplicates and existing nil/empty semantics, rather than the narrower
+removal fingerprint. Existing signed-plan bytes remain unchanged.
+
+Payload verification requires exactly `worktree-list.bin`, `status.bin`,
+`staged.patch`, `unstaged.patch` and `untracked.tar.gz`, with matching SHA-256
+hashes. It does not parse Git output or archives. Canonical decoding and payload
+hashes do not authenticate a manifest or establish a complete usable snapshot;
+a later receipt must commit to the complete manifest bytes, including metadata.
+Missing policy, adapter-lock, candidate or evidence digests fail closed. Do not
+invent adapter provenance: current core-only plans remain inspection-only.
+
+The existing ordinary Go tests, isolated `internal/testutil` fixtures and native
+macOS/Windows CI suffice. This pure slice uses in-memory synthetic values and
+ordinary regression/fuzz tests, not a new acceptance or harness framework.
+Independent review and final-head native CI are required before merge.
+
+Still required before Task 9: narrow raw Git/admin capture, coherent before/after
+revalidation, safe untracked archives with modes and symlinks, sensitive and
+oversize preflight, detached recovery refs, private fsync/atomic publication,
+receipt commitments, repository/branch/target checks and byte-for-byte restore.
 
 **Files:**
 - Create: `internal/snapshot/manifest.go`

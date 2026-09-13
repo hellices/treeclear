@@ -102,23 +102,7 @@ func canonicalPlanJSON(value domain.Plan) ([]byte, error) {
 		candidate := &value.Candidates[candidateIndex]
 		candidate.Worktree.LastCommitAt = candidate.Worktree.LastCommitAt.UTC()
 		candidate.Worktree.MetadataModifiedAt = candidate.Worktree.MetadataModifiedAt.UTC()
-		candidate.Evidence.Processes = slices.Clone(candidate.Evidence.Processes)
-		for processIndex := range candidate.Evidence.Processes {
-			process := &candidate.Evidence.Processes[processIndex]
-			process.CreatedAt = process.CreatedAt.UTC()
-		}
-		candidate.Evidence.Agents = slices.Clone(candidate.Evidence.Agents)
-		for agentIndex := range candidate.Evidence.Agents {
-			agent := &candidate.Evidence.Agents[agentIndex]
-			agent.CreatedAt = agent.CreatedAt.UTC()
-			agent.UpdatedAt = agent.UpdatedAt.UTC()
-			agent.ObservedAt = agent.ObservedAt.UTC()
-			agent.ProcessRefs = slices.Clone(agent.ProcessRefs)
-			for referenceIndex := range agent.ProcessRefs {
-				reference := &agent.ProcessRefs[referenceIndex]
-				reference.CreatedAt = reference.CreatedAt.UTC()
-			}
-		}
+		candidate.Evidence = canonicalEvidence(candidate.Evidence)
 	}
 	return encodePreconditions(value)
 }
