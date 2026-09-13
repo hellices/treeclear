@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8C bounded administrative diagnostic reads
+- Status: In progress — Task 8D review and native verification
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,7 +12,7 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, #7, and #8 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, #8, and #9 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
@@ -21,7 +21,9 @@ review and native macOS/Windows CI, including its merge commit. Task 8A's pure
 snapshot-integrity foundation also passed independent review and native CI on
 both the final head and merge commit. Task 8B's guarded raw Git reads also
 passed independent review and native CI on the final head and merge commit.
-Task 8C adds bounded, read-only administrative diagnostics.
+Task 8C's bounded administrative diagnostics also passed independent review
+and native macOS/Windows CI on the final head and merge commit. Task 8D adds
+a bounded in-memory untracked tar/gzip codec without collection or extraction.
 Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
@@ -2241,8 +2243,128 @@ native macOS/Windows matrix must exercise the final head and merge commit.
 - [x] Verify genuine Git index/unmerged metadata and shared original modes
   without altering fixture bytes or permissions.
 - [x] Run full local normal/race/vet/build/format/diff checks.
-- [ ] Repeat independent review until clean, verify final-head native macOS/
+- [x] Repeat independent review until clean, verify final-head native macOS/
   Windows CI, merge, and verify native CI on the merge commit.
+
+### Task 8D execution slice: bounded untracked archive codec
+
+**Goal:** Give later capture and restore a tested `untracked.tar.gz` format
+without adding filesystem collection, publication, extraction or cleanup.
+Use standard `archive/tar` and `compress/gzip`; preserve the existing manifest,
+payload names and Git fingerprint formats.
+
+**Files:** New `internal/snapshot/untracked*.go` production/focused test files
+and `internal/snapshot/archive_*_test.go` integration fixtures; this plan remains the
+execution record. No dependency or development acceptance framework is needed.
+
+**Interfaces:**
+
+```go
+type UntrackedEntry struct {
+	Path       string
+	Kind       string
+	Mode       fs.FileMode
+	Data       []byte
+	LinkTarget string
+}
+
+func EncodeUntracked(entries []UntrackedEntry, maximumBytes int64) ([]byte, error)
+func DecodeUntracked(contents []byte, maximumBytes int64) ([]UntrackedEntry, error)
+```
+
+The positive, representable byte budget bounds both compressed bytes and the
+entire expanded tar stream, including headers and padding. Bound work during
+allocation and decompression, not after materializing hostile declared sizes.
+An expansion rejection may consume one extra detection byte. Limit entries to
+4,096, including directories and symlinks, and paths/link text to 4,096 bytes.
+Return nil output on any failure; use `ErrUntrackedInvalid` for invalid input/
+format/profile and `ErrUntrackedLimit` for capacity breaches. Empty entries
+encode a real empty archive; empty encoded bytes are invalid.
+
+Entry paths use the existing portable lexical profile and case-fold collision
+checks. Reject root/absolute/traversal paths, backslashes, reserved/control
+names, `.git` components and duplicates. Explicit file/symlink ancestors of
+other entries are invalid; missing directories may be implicit parents.
+Retain original paths and permission bits, including setuid/setgid/sticky.
+Kinds are regular `file`, `directory` and `symlink`, with matching modes.
+Directories have nil data; files have no link target; symlinks have nil data
+and nonempty relative link text resolving lexically within the archive root,
+excluding `.git`. Preserve that original link text. Raw `.`/`..` components
+in link text are accepted only when the complete lexical target remains in
+the root. Reject unsupported types, mode bits and conflicting fields.
+
+Encoding is deterministic across input permutations, uses fixed owner/time
+metadata without machine/user names, and supports standard USTAR/PAX long and
+Unicode names. Decode standard-library-defined effective entries, rejecting
+hardlinks, devices, FIFOs, sparse/global metadata and unsupported extensions.
+This is not a generic archive extractor. Return sorted caller-owned entries
+without modifying input slices or retaining aliases into encoded input.
+
+Require one complete gzip member, verified checksum/trailer and no appended
+members or garbage; closing a gzip reader alone is insufficient. Require an
+aligned tar stream and its two zero end blocks, not a parseable prefix.
+Reject hidden second archives/nonzero trailing data; ordinary all-zero tar
+padding can be accepted within the same budget. Bounded decompression before
+`tar.Reader` is sufficient; do not introduce a custom tar parser.
+
+These are structural checks, not Git-ignore/sensitivity decisions, native
+filesystem identity/containment proof or authenticated capture. The codec does
+not silently filter `.env` files or select paths; later collection/policy must
+do that before apply. The future manager must enforce the plan's whole-snapshot
+budget as well. No publication, recovery ref, receipt, restoration or mutation
+API is added. Task9 remains blocked on the remaining snapshot lifecycle.
+
+Harness assessment: ordinary Go table tests, standard tar/gzip fixture writers,
+bounded fuzz seeds and an `internal/testutil` temporary Git fixture suffice.
+The integration fixture composes the codec with the existing manifest/hash
+validators and checks original bytes/modes remain unchanged; it does not claim
+production path selection or cross-payload coherence. No actual workspace,
+database, scheduler, process enumeration, global environment/cwd/config change
+or generated fixture is needed. The existing optional Task8A fuzz timeout is
+unresolved and is not attributed to or claimed fixed by this new codec.
+
+- [x] Assess scope, existing harness and the clean merged baseline.
+- [x] Write and observe failing codec and real-Git composition tests.
+
+```go
+func TestUntrackedCodecRoundTrip(test *testing.T) {
+	entries := []UntrackedEntry{
+		{Path: "binary.bin", Kind: "file", Mode: 0o600, Data: []byte{0, 1, 0xff}},
+		{Path: "folder", Kind: "directory", Mode: fs.ModeDir | 0o750},
+		{Path: "folder/link", Kind: "symlink", Mode: fs.ModeSymlink | 0o777, LinkTarget: "../binary.bin"},
+	}
+	encoded, err := EncodeUntracked(entries, 1<<20)
+	if err != nil {
+		test.Fatal(err)
+	}
+	decoded, err := DecodeUntracked(encoded, 1<<20)
+	if err != nil || !reflect.DeepEqual(decoded, entries) {
+		test.Fatalf("archive round trip: %#v, %v", decoded, err)
+	}
+}
+```
+
+- [x] Implement the bounded codec and cover deterministic ordering, ownership,
+  special modes, long/Unicode names, unsafe paths/links/types, collisions,
+  truncation, checksum/trailer errors, appended data and entry/byte boundaries.
+- [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
+  `go vet ./...`, `go build ./...`, `gofmt -l .` and `git diff --check`.
+
+Local implementation evidence: missing-API failures were followed by intended
+assertion failures against explicit unimplemented placeholders, then passing
+codec and real-Git integration tests. A first implementation edit's syntax
+failure was recorded separately, not as behavioral RED. All 19 focused tests
+and 24 ordinary bounded fuzz seeds pass normal/race execution. Additional seed
+and limiter coverage was added after the first GREEN, not claimed as fresh RED.
+Both Git composition and native Unix special-mode/link fixtures pass; their
+three-repeat race run also passes. On local Go 1.26.5 darwin/arm64, all required
+full-repository commands pass, with empty formatting and diff-check output.
+These are local results, not native Windows evidence or independent approval.
+No timed fuzz run was performed, and the earlier Task8A timeout is unresolved.
+
+- [ ] Create a Task8D PR, repeat independent review until clean, and verify
+  native macOS/Windows CI on its final head before the authorized merge.
+- [ ] Verify native macOS/Windows CI on the merge commit before the next slice.
 
 ### Remaining Task 8 lifecycle
 
