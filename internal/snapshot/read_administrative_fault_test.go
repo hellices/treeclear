@@ -428,9 +428,8 @@ func trackAdministrativeReadHandles(test *testing.T, operations *administrativeR
 	}
 	test.Cleanup(func() {
 		for _, file := range files {
-			if _, err := file.Stat(); !errors.Is(err, fs.ErrClosed) {
+			if err := file.Close(); !errors.Is(err, fs.ErrClosed) {
 				test.Errorf("file handle was not closed: %s, %v", file.Name(), err)
-				file.Close()
 			}
 		}
 		for _, root := range roots {

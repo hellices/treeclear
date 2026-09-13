@@ -13,6 +13,28 @@ import (
 	"time"
 )
 
+func TestReadAdministrativeFocusedUnixRootReplacementDuringRead(test *testing.T) {
+	directory := newAdministrativeReadFixture(test)
+	replace := prepareAdministrativeReadReplacement(test, directory)
+	operations := defaultAdministrativeReadOperations()
+	trackAdministrativeReadHandles(test, &operations)
+	changed := false
+	original := operations.read
+	operations.read = func(file *os.File, buffer []byte) (int, error) {
+		count, err := original(file, buffer)
+		if !changed && count > 0 {
+			replace()
+			changed = true
+		}
+		return count, err
+	}
+	entries, err := readAdministrative(test.Context(), directory, operations)
+	assertAdministrativeReadFailure(test, entries, err, nil)
+	if !changed {
+		test.Fatal("root replacement during the open-file read was not exercised")
+	}
+}
+
 func TestReadAdministrativeFocusedUnixSpecialModes(test *testing.T) {
 	directory := newAdministrativeReadFixture(test)
 	addAdministrativeReadNestedFixture(test, directory)

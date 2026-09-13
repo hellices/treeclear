@@ -94,14 +94,14 @@ func TestReadAdministrativeFocusedRootReplacement(test *testing.T) {
 					return 0, nil
 				}
 			} else {
-				original := operations.read
-				operations.read = func(file *os.File, buffer []byte) (int, error) {
-					count, err := original(file, buffer)
-					if !changed && count > 0 {
+				original := operations.closeFile
+				operations.closeFile = func(file *os.File) error {
+					err := original(file)
+					if err == nil && administrativeReadFileName(file) == "HEAD" {
 						replace()
 						changed = true
 					}
-					return count, err
+					return err
 				}
 			}
 			entries, err := readAdministrative(test.Context(), directory, operations)
