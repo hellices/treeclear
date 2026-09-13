@@ -339,12 +339,19 @@ func buildProcessProblems(worktrees []domain.Worktree, collection process.Collec
 		var paths []string
 		if knownPaths[path] {
 			paths = []string{path}
+		} else {
+			failures = append(failures, buildProcessProblem{failure: fmt.Errorf("unbound process evidence for worktree %q", path)})
 		}
 		for _, evidence := range records {
 			inspect(evidence, false, paths)
+			if evidence.PID < 0 || evidence.PID == 0 && (evidence.State != domain.EvidenceUnknown || evidence.Error == "") {
+				failures = append(failures, buildProcessProblem{failure: fmt.Errorf("invalid process PID %d in worktree binding", evidence.PID)})
+			}
 			binding, found := bindings[evidence.PID]
 			if !found {
 				binding.evidence = evidence
+			} else if evidence.PID > 0 && binding.evidence != evidence {
+				failures = append(failures, buildProcessProblem{failure: fmt.Errorf("conflicting process evidence for PID %d", evidence.PID)})
 			}
 			binding.ambiguous = binding.ambiguous || len(paths) == 0 || binding.evidence != evidence
 			binding.paths = append(binding.paths, paths...)

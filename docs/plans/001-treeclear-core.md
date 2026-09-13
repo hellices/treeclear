@@ -1909,6 +1909,9 @@ Task 7C execution details:
   checks that correspondence and scope, not message similarity, before keeping
   a failure local. Enumeration, containment, unbound uncertainty, inconsistent
   diagnostics, and errors without proven scope remain globally blocking.
+  Binding keys outside the inventory, invalid process PIDs, and conflicting
+  records for a positive PID block globally even without an `Uninspectable`
+  entry. Independent per-worktree path-failure sentinels remain local.
 - Candidate IDs are stable for a worktree identity; plan IDs combine canonical
   content with fresh cryptographic randomness. Fingerprints include the final
   decision, action, and snapshot requirements. Only safe candidates default to
