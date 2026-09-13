@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hellices/treeclear/internal/pathutil"
+	"golang.org/x/sys/windows"
 )
 
 func TestReadAdministrativeFocusedWindowsLongLocalPath(test *testing.T) {
@@ -42,7 +43,7 @@ func TestReadAdministrativeFocusedWindowsLongLocalPath(test *testing.T) {
 	assertAdministrativeReadFailure(test, entries, err, nil)
 }
 
-func TestReadAdministrativeFocusedWindowsReparseAttributes(test *testing.T) {
+func TestReadAdministrativeFocusedWindowsUnsafeAttributes(test *testing.T) {
 	directory := newAdministrativeReadFixture(test)
 	file, err := os.Open(filepath.Join(directory, "HEAD"))
 	if err != nil {
@@ -53,14 +54,28 @@ func TestReadAdministrativeFocusedWindowsReparseAttributes(test *testing.T) {
 	if statErr != nil || closeErr != nil {
 		test.Fatalf("fixture information: %v, %v", statErr, closeErr)
 	}
-	attributes := *information.Sys().(*syscall.Win32FileAttributeData)
-	attributes.FileAttributes |= syscall.FILE_ATTRIBUTE_REPARSE_POINT
-	reparse := administrativeReadWindowsInformation{FileInfo: information, attributes: &attributes}
-	if !reparse.Mode().IsRegular() {
-		test.Fatal("fixture must exercise a reparse record with ordinary FileMode")
+	if err := validateAdministrativeReadInfo(information); err != nil {
+		test.Fatalf("ordinary file attributes: %v", err)
 	}
-	if err := validateAdministrativeReadInfo(reparse); err == nil {
-		test.Fatal("accepted the native reparse attribute on a regular-mode file")
+	for _, scenario := range []struct {
+		name       string
+		attributes uint32
+	}{
+		{"reparse", windows.FILE_ATTRIBUTE_REPARSE_POINT},
+		{"device", windows.FILE_ATTRIBUTE_DEVICE},
+		{"device-and-reparse", windows.FILE_ATTRIBUTE_DEVICE | windows.FILE_ATTRIBUTE_REPARSE_POINT},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			attributes := *information.Sys().(*syscall.Win32FileAttributeData)
+			attributes.FileAttributes |= scenario.attributes
+			unsafe := administrativeReadWindowsInformation{FileInfo: information, attributes: &attributes}
+			if !unsafe.Mode().IsRegular() {
+				test.Fatal("fixture must exercise unsafe native attributes with ordinary FileMode")
+			}
+			if err := validateAdministrativeReadInfo(unsafe); err == nil {
+				test.Fatal("accepted unsafe native attributes on a regular-mode file")
+			}
+		})
 	}
 	unknown := administrativeReadWindowsInformation{FileInfo: information}
 	if err := validateAdministrativeReadInfo(unknown); err == nil {
