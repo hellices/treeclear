@@ -69,6 +69,27 @@ Any limit, cancellation, or collection error leaves Git state unknown.
 Agent evidence cannot establish inactivity when both `createdAt` and `updatedAt`
 are absent; observation time is not activity time.
 
+## Plan fingerprint foundation
+
+`internal/plan` currently exposes only pure `CandidateFingerprint` and
+`PolicyDigest` functions (Plan 001 Task 7A). No new CLI command, plan storage,
+HMAC key, or removal authorization is added. Collectors still own canonical
+filesystem identities; hashing does not resolve paths or read user data.
+
+Fingerprints cover the dedicated safety preconditions, action, reason codes,
+snapshot requirements, process identity/creation time, offline agent source
+identity and content, and adapter health/trust/offline status. They exclude
+observation times and human presentation text but preserve uncertainty via
+warning/error-presence bits. Planning-only agent records are excluded from
+the removal fingerprint, not from the future signed explanatory plan.
+Unrecognized revalidation modes are errors, not omitted evidence.
+
+Both functions return `sha256:` plus lowercase hex. Tests cover field changes,
+stable ordering (including conflicting identities), immutable inputs, equal
+UTC instants, empty-list normalization, and malformed hashed inputs. The
+candidate fingerprint is not a substitute for future HMAC verification,
+whole-plan revalidation, snapshot verification, or explicit apply approval.
+
 ## Delivery
 
 Follow the [implementation plans](plans/README.md) in order. Each stage, or

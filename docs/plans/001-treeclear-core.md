@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — read-only CLI slice
+- Status: In progress — Task 7A fingerprint foundation
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,11 +12,14 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Current delivery covers Tasks 1–6 and the read-only `scan` command brought
-forward from Task 7. The remaining Task 7 plan persistence, integrity, and
-`plan`/`explain` commands, plus Tasks 8–11 cleanup and recovery, remain pending.
-This split provides a usable inspection CLI without prematurely exposing
-mutation commands. Agent adapters and later plans remain unimplemented.
+PRs #1 and #2 are merged: the standard development baseline, Tasks 1–6, and
+the read-only `scan` command brought forward from Task 7 are delivered.
+The current Task 7A slice adds pure candidate fingerprints and policy digests.
+Task 7 plan building, private persistence, integrity, and `plan`/`explain`
+commands, plus Tasks 8–11 cleanup and recovery, remain pending. This split
+keeps the identity contract independently reviewable before introducing
+private storage or signed plans. Agent adapters and later plans remain
+unimplemented; no mutation command is exposed.
 
 **Goal:** Build a working macOS and Windows Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, safely removes approved worktrees, and restores them from verified local snapshots.
 
@@ -1523,6 +1526,17 @@ git commit -m "feat: classify cleanup candidates safely"
 
 ## Task 7: Build, fingerprint, persist, and inspect plans
 
+Reviewable delivery slices:
+
+- **7A (current):** `CandidateFingerprint` and `PolicyDigest`, deterministic
+  precondition encoding, and focused mutation/canonicalization tests.
+- **7B (pending):** private filesystem storage, local HMAC integrity, expiry,
+  and tamper rejection on native macOS and Windows.
+- **7C (pending):** builder integration and the `plan`/`explain` CLI commands.
+
+The combined Task 7 checkboxes below remain open until all slices are delivered.
+7A does not create, authenticate, persist, load, or apply a plan.
+
 **Files:**
 - Create: `internal/plan/fingerprint.go`
 - Create: `internal/plan/fingerprint_test.go`
@@ -1743,6 +1757,21 @@ policy-relevant value. Planning-only agent evidence remains in the HMAC-signed
 plan for explanation but is excluded from the removal fingerprint because
 apply does not execute that source; `AdapterStatus.OfflineRevalidatable` must
 still be true for a Safe decision.
+
+The implementation extends the sketch with warning/error-presence bits because
+the existing policy treats those as unknown even when state/health fields
+otherwise look valid. Human warning text, process/adapter diagnostic text,
+reason messages, cached fingerprints, display IDs, lock reason text, byte
+estimates, and elapsed inactivity are not removal preconditions. Collection
+errors retain their exact text as specified above. Only explicit
+`planning-only` records are omitted; unknown revalidation modes fail closed.
+Inputs must already contain canonical path identities. Instants are encoded
+in UTC; unordered lists use deterministic full-value tie breakers and retain
+duplicates. Nil and empty lists normalize alike, while executable argument
+order is preserved. Invalid UTF-8 and unencodable timestamps in hashed fields
+return an error instead of a lossy fingerprint. Digests use `sha256:` followed
+by 64 lowercase hexadecimal digits. These digests are not authentication or
+permission to remove anything; those checks belong to the remaining tasks.
 
 `PolicyDigest` is SHA-256 over canonical `domain.PolicySettings`. Before
 hashing, copy and sort `BaseBranches`. The digest inputs are exactly:
