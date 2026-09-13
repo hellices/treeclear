@@ -2012,10 +2012,10 @@ This slice provides `snapshot.ValidateManifest`, `EncodeManifest`,
 capture, filesystem/Git mutation, receipt, apply or restore API. Keep the full
 Task 8 steps below pending until the remaining snapshot lifecycle is delivered.
 
-The manifest retains all fields in the sample below and adds `ToolVersion`,
-`PlanSchemaVersion`, `AdminDir`, and `AdministrativeEntries`. The snapshot and
-plan schemas are independently fixed at version 1. Administrative entries
-record relative slash paths, file/directory kinds, original modes and raw
+The manifest schema below includes `ToolVersion`, `PlanSchemaVersion`,
+`AdminDir`, and `AdministrativeEntries`, matching `internal/snapshot/manifest.go`.
+The snapshot and plan schemas are independently fixed at version 1.
+Administrative entries record relative slash paths, file/directory kinds, original modes and raw
 diagnostic bytes, including an explicit root and nonempty `HEAD`, `commondir`
 and `gitdir` files. An index, when present, is recorded as raw file bytes.
 Administrative records are diagnostic only and must never be replayed into
@@ -2149,28 +2149,39 @@ git diff --cached --binary --no-ext-diff --no-textconv
 
 The snapshot manager must not honor `diff.external` or textconv drivers.
 
-Manifest:
+Manifest and diagnostic entry schemas, matching `internal/snapshot/manifest.go`:
 
 ```go
 type Manifest struct {
-	SchemaVersion   int               `json:"schemaVersion"`
-	SnapshotID      string            `json:"snapshotId"`
-	PlanID          string            `json:"planId"`
-	CandidateID     string            `json:"candidateId"`
-	CandidateFingerprint string       `json:"candidateFingerprint"`
-	PolicyDigest    string            `json:"policyDigest"`
-	AdapterLockDigest string          `json:"adapterLockDigest"`
-	EvidenceDigest  string            `json:"evidenceDigest"`
-	CreatedAt       time.Time         `json:"createdAt"`
-	RepositoryRoot  string            `json:"repositoryRoot"`
-	CommonGitDir    string            `json:"commonGitDir"`
-	WorktreePath    string            `json:"worktreePath"`
-	Head            string            `json:"head"`
-	Branch          string            `json:"branch,omitempty"`
-	RecoveryRef     string            `json:"recoveryRef,omitempty"`
-	Files           map[string]string `json:"files"`
-	UntrackedFiles  int               `json:"untrackedFiles"`
-	UntrackedBytes  int64             `json:"untrackedBytes"`
+	SchemaVersion         int               `json:"schemaVersion"`
+	ToolVersion           string            `json:"toolVersion"`
+	PlanSchemaVersion     int               `json:"planSchemaVersion"`
+	SnapshotID            string            `json:"snapshotId"`
+	PlanID                string            `json:"planId"`
+	CandidateID           string            `json:"candidateId"`
+	CandidateFingerprint  string            `json:"candidateFingerprint"`
+	PolicyDigest          string            `json:"policyDigest"`
+	AdapterLockDigest     string            `json:"adapterLockDigest"`
+	EvidenceDigest        string            `json:"evidenceDigest"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	RepositoryRoot        string            `json:"repositoryRoot"`
+	CommonGitDir          string            `json:"commonGitDir"`
+	WorktreePath          string            `json:"worktreePath"`
+	AdminDir              string            `json:"adminDir"`
+	Head                  string            `json:"head"`
+	Branch                string            `json:"branch,omitempty"`
+	RecoveryRef           string            `json:"recoveryRef,omitempty"`
+	Files                 map[string]string `json:"files"`
+	UntrackedFiles        int               `json:"untrackedFiles"`
+	UntrackedBytes        int64             `json:"untrackedBytes"`
+	AdministrativeEntries []AdminEntry      `json:"administrativeEntries"`
+}
+
+type AdminEntry struct {
+	Path string      `json:"path"`
+	Kind string      `json:"kind"`
+	Mode fs.FileMode `json:"mode"`
+	Data []byte      `json:"data"`
 }
 ```
 
