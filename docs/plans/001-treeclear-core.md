@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 7C plan builder and inspection commands
+- Status: In progress — Task 7D concurrent private-state creation correction
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,11 +12,13 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, and #4 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, and #5 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
-plan storage are delivered. The current Task 7C slice adds plan building and
-the `plan`/`explain` commands. Tasks 8–11 cleanup and recovery remain pending.
+plan storage and Task 7C's plan builder and `plan`/`explain` commands are
+delivered. A separate Task 7D correction addresses an ancestor-creation race
+found by post-merge native Windows CI. Tasks 8–11 cleanup and recovery remain
+pending; the correction is reviewed and merged before snapshot development.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
@@ -1561,7 +1563,7 @@ CLI command, authorize an action, or apply cleanup.
 - Produces: `plan.Store.Load(ctx context.Context, idOrPath string) (domain.Plan, error)`
 - Produces CLI commands: `scan`, `plan`, and `explain`
 
-- [ ] **Step 1: Write deterministic fingerprint and expiry tests**
+- [x] **Step 1: Write deterministic fingerprint and expiry tests**
 
 ```go
 func TestCandidateFingerprintChangesWithAnyPrecondition(t *testing.T) {
@@ -1647,7 +1649,7 @@ Store` with the exact constructor used above.
 Add a test that changing process creation time or agent fingerprint changes the
 candidate fingerprint.
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -1657,7 +1659,7 @@ go test ./internal/plan ./internal/cli
 
 Expected: FAIL because plan building and commands do not exist.
 
-- [ ] **Step 3: Implement canonical fingerprints, atomic storage, and commands**
+- [x] **Step 3: Implement canonical fingerprints, atomic storage, and commands**
 
 Define the builder request:
 
@@ -1951,7 +1953,7 @@ Task 7C execution details:
   sources, injected clocks and native CI; no new harness framework or real
   workspace smoke test is added.
 
-- [ ] **Step 4: Run targeted, full, and command smoke tests**
+- [x] **Step 4: Run targeted, full, and command smoke tests**
 
 Run:
 
@@ -1961,18 +1963,39 @@ go test ./internal/plan ./internal/cli
 go test ./...
 GOOS=windows GOARCH=amd64 go test -c ./internal/fssecure
 rm -f fssecure.test.exe
-go run ./cmd/treeclear plan --root .
+go test -count=1 ./tests/e2e
 ```
 
-Expected: tests PASS. The command writes a plan, classifies the primary
-worktree as protected, and performs no removal.
+Expected: tests PASS. Isolated command fixtures write a plan, classify the
+primary worktree as protected, and perform no removal. Never run the smoke
+test against a real developer workspace. Native macOS/Windows CI, not the
+supplementary cross-build, supplies platform verification.
 
-- [ ] **Step 5: Commit plans and read-only CLI**
+- [x] **Step 5: Commit plans and read-only CLI**
 
 ```bash
 git add internal/plan internal/fssecure internal/cli
 git commit -m "feat: create expiring cleanup plans"
 ```
+
+### Task 7D: Concurrent private-state creation correction
+
+PR #5 was reviewed with no remaining actionable findings and both native CI
+jobs passed at its final head. Its identical-tree merge commit then exposed
+a timing-dependent Windows failure in `TestEnsurePrivateDirectoryConcurrentCreators`.
+The same failure reproduces locally under repetition: an ancestor is missing
+during symlink resolution but another creator publishes the real directory
+before the follow-up `Lstat`. Returning the stale not-found error is incorrect.
+
+Revalidate that newly visible real directory once through the normal ancestor
+resolver. This is a bounded retry, not a blanket retry of inaccessible paths,
+dangling links or conflicting objects. Preserve physical path resolution,
+private ownership/modes/ACLs, ancestor security and exclusive publication.
+
+The existing ordinary concurrent-creator test runs 32 bounded rounds; no
+custom filesystem harness or acceptance framework is introduced. Record the
+native failure, local RED/GREEN stress checks and final native CI in the
+corrective PR, then obtain independent review and merge before Task 8.
 
 ## Task 8: Create private, verified recovery snapshots
 
