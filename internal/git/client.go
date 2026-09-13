@@ -271,6 +271,7 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 	if worktree.AdminDir != "" && commonDirectory != "" {
 		relative, relErr := filepath.Rel(commonDirectory, worktree.AdminDir)
 		if relErr != nil || !filepath.IsLocal(relative) {
+			worktree.PathSafe = false
 			record("administrative directory", errors.New("metadata is outside the repository common directory"))
 		} else {
 			worktree.IndexHash, err = hashFile(filepath.Join(worktree.AdminDir, "index"))

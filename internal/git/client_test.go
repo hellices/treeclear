@@ -160,6 +160,20 @@ func TestClientInventoriesRealLinkedWorktree(test *testing.T) {
 	}
 }
 
+func TestClientRejectsAdministrativeDirectoryOutsideRepository(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	other := testutil.NewRepository(test)
+	actual, err := NewClient(nil).InspectWorktree(context.Background(), repository.Root, domain.Worktree{
+		Path: other.Root, RepositoryRoot: repository.Root, PathSafe: true, GitStateKnown: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "metadata is outside the repository common directory") {
+		test.Fatalf("administrative directory escape was not reported: %v", err)
+	}
+	if actual.PathSafe || actual.GitStateKnown || len(actual.CollectionErrors) == 0 || actual.IndexHash != "" || actual.AdminHash != "" {
+		test.Fatalf("escaped administrative identity remained trusted: %#v", actual)
+	}
+}
+
 func TestClientFailedCollectionCannotLookClean(test *testing.T) {
 	client := NewClient(runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
 		return execx.Result{ExitCode: 128}, errors.New("access denied")

@@ -53,6 +53,10 @@ Byte estimates exclude the root Git marker and its metadata tree. Marker aliases
 are matched by filesystem identity, not case spelling alone. Nested Git markers
 still make the affected worktree unknown and unsafe.
 
+An administrative directory outside the repository's common Git directory
+invalidates path safety. Agent evidence cannot establish inactivity when both
+`createdAt` and `updatedAt` are absent; observation time is not activity time.
+
 ## Delivery
 
 Follow the [implementation plans](plans/README.md) in order. Each stage, or

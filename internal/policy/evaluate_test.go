@@ -119,6 +119,44 @@ func TestEvaluateRecentCompletedAgentIsProtected(test *testing.T) {
 	}
 }
 
+func TestEvaluateInactiveAgentRequiresActivityTime(test *testing.T) {
+	stale := testPolicy().Now.Add(-30 * 24 * time.Hour)
+	recent := testPolicy().Now.Add(-time.Hour)
+	for _, state := range []domain.EvidenceState{domain.EvidenceIdle, domain.EvidenceCompleted, domain.EvidenceArchived, domain.EvidenceInactive} {
+		for _, scenario := range []struct {
+			name    string
+			created time.Time
+			updated time.Time
+			class   domain.Classification
+			reason  string
+		}{
+			{"missing", time.Time{}, time.Time{}, domain.Protected, "unknown_evidence"},
+			{"created only", stale, time.Time{}, domain.Safe, "safe"},
+			{"updated only", time.Time{}, stale, domain.Safe, "safe"},
+			{"recent creation", recent, stale, domain.Protected, "active_agent"},
+			{"recent update", stale, recent, domain.Protected, "active_agent"},
+		} {
+			test.Run(string(state)+"/"+scenario.name, func(test *testing.T) {
+				evidence := domain.EvidenceSet{Agents: []domain.AgentEvidence{{
+					State: state, SupportGrade: domain.TrustSupportedAPI,
+					CreatedAt: scenario.created, UpdatedAt: scenario.updated, ObservedAt: testPolicy().Now,
+				}}}
+				actual := Evaluate(eligibleWorktree(), evidence, testPolicy())
+				if actual.Classification != scenario.class || len(actual.Reasons) != 1 || actual.Reasons[0].Code != scenario.reason {
+					test.Fatalf("agent timestamp decision = %#v", actual)
+				}
+			})
+		}
+	}
+}
+
+func TestEvaluateNotApplicableAgentNeedsNoActivityTime(test *testing.T) {
+	evidence := domain.EvidenceSet{Agents: []domain.AgentEvidence{{State: domain.EvidenceNotApplicable}}}
+	if actual := Evaluate(eligibleWorktree(), evidence, testPolicy()); actual.Classification != domain.Safe {
+		test.Fatalf("non-applicable agent was blocked for missing activity time: %#v", actual)
+	}
+}
+
 func TestEvaluateTrustAndApplicability(test *testing.T) {
 	for _, grade := range []domain.TrustGrade{domain.TrustProcessOnly, "future-grade", ""} {
 		evidence := domain.EvidenceSet{Adapters: []domain.AdapterStatus{{Applicable: true, Healthy: true, Trusted: true, OfflineRevalidatable: true, BestGrade: grade}}}

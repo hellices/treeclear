@@ -114,7 +114,7 @@ func hasUnknownEvidence(evidence domain.EvidenceSet) bool {
 		default:
 			return true
 		}
-		if len(agent.Warnings) != 0 {
+		if len(agent.Warnings) != 0 || (agent.CreatedAt.IsZero() && agent.UpdatedAt.IsZero()) {
 			return true
 		}
 		if agent.SessionID != "" || agent.ThreadID != "" {

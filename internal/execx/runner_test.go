@@ -102,6 +102,45 @@ func TestSanitizedEnvironment(test *testing.T) {
 	}
 }
 
+func TestRunnerPreservesEnvironmentSemantics(test *testing.T) {
+	inherited := os.Getenv("PATH")
+	if inherited == "" {
+		test.Skip("PATH must be nonempty to distinguish inheritance from an empty environment")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		test.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		name        string
+		environment []string
+		expected    string
+	}{
+		{"nil inherits", nil, inherited},
+		{"empty clears", []string{}, ""},
+		{"explicit replaces", []string{"PATH=explicit-child-value"}, "explicit-child-value"},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			result, err := (OSRunner{}).Run(context.Background(), Request{
+				Name: executable, Directory: test.TempDir(),
+				Args: []string{"-test.run=^TestRunnerEnvironmentHelper$", "--", "print-path"}, Env: scenario.environment,
+				Timeout: 10 * time.Second, MaxBytes: 64 << 10,
+			})
+			if err != nil || result.ExitCode != 0 || string(result.Stdout) != scenario.expected {
+				test.Fatalf("runner did not preserve requested environment semantics: exit = %d, error = %v", result.ExitCode, err)
+			}
+		})
+	}
+}
+
+func TestRunnerEnvironmentHelper(test *testing.T) {
+	if len(os.Args) != 4 || os.Args[2] != "--" || os.Args[3] != "print-path" {
+		return
+	}
+	fmt.Fprint(os.Stdout, os.Getenv("PATH"))
+	os.Exit(0)
+}
+
 func TestRunnerHelper(test *testing.T) {
 	mode := os.Getenv("TREECLEAR_EXEC_HELPER")
 	if mode == "" {
