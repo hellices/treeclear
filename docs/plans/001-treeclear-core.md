@@ -1821,12 +1821,20 @@ fields, case-aliased names, or alternate time spellings. This strict version-1
 encoding prevents ambiguous JSON representations. Exports in Task 7C must
 preserve the saved bytes. Stored plans use `plans/<planId>.json`; loading by ID
 also checks that the authenticated identifier matches the requested ID.
+Other nonempty, non-NUL load arguments are file paths, with no extension
+requirement; relative paths resolve against the caller's working directory.
+Use `./` or an absolute path when a filename itself is also a valid plan ID.
 
 The canonical version-1 integrity object is the final root field. `Load`
 authenticates the bounded raw document, excluding only the MAC value in this
 fixed trailer, before materializing the typed plan. It then checks a canonical
 typed round-trip. This ordering avoids memory amplification from compact
 unauthenticated arrays of empty candidate/evidence objects.
+
+Cancellation detected before filesystem work creates no state. After that
+boundary, checks occur between phases, not inside synchronous OS calls:
+private initialization can remain and in-flight publication can complete.
+Do not roll back shared keys/directories or immutable files on cancellation.
 
 Task 7 also implements `fssecure.EnsurePrivateDirectory`,
 `fssecure.WritePrivateFile`, and bounded read-only

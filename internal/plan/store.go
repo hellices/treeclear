@@ -144,9 +144,6 @@ func (store Store) planPath(idOrPath string) (string, string, error) {
 	if idOrPath == "" || strings.ContainsRune(idOrPath, 0) {
 		return "", "", ErrPlanInvalid
 	}
-	if !filepath.IsAbs(idOrPath) && !strings.ContainsAny(idOrPath, `/\`) && !strings.HasSuffix(idOrPath, ".json") {
-		return "", "", fmt.Errorf("%w: expected a plan identifier or file path", ErrPlanInvalid)
-	}
 	path, err := filepath.Abs(idOrPath)
 	return path, "", err
 }

@@ -136,12 +136,22 @@ cannot expand into large typed plans before rejection.
 
 Plans are limited to 16 MiB. IDs start with `plan_`, contain only ASCII
 letters/digits/underscores/hyphens in their nonempty suffix, and are at most
-128 bytes. Expiry must be strictly later than the clock. The later builder
+128 bytes. Other nonempty, non-NUL inputs to `Load` are paths, including bare
+relative filenames without an extension. A valid ID takes precedence; use
+`./plan_example` or an absolute path to load a file whose name is also an ID.
+Expiry must be strictly later than the clock. The later builder
 owns populating generation time; this low-level store rejects nonzero future
 generation times but accepts zero for minimal plan construction. Missing or
 corrupt key reads fail without generating replacement state; existing corrupt
 keys are never silently replaced by saves. Invalid saves are rejected before
 state creation, and loading never creates state or repairs ACLs.
+
+Already-canceled operations, and cancellation detected during preflight, do
+not create state. Once filesystem work begins, cancellation is checked
+between phases but cannot interrupt synchronous OS calls. Private directories
+or a key can remain if cancellation arrives during initialization; publication
+already in progress can complete successfully. Cancellation does not roll
+back shared initialization or delete immutable files used by other callers.
 
 ## Delivery
 

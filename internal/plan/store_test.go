@@ -259,7 +259,7 @@ func TestStoreRejectsInvalidSaveWithoutFilesystemChanges(test *testing.T) {
 	}
 }
 
-func TestStoreReadAndCancellationDoNotCreateState(test *testing.T) {
+func TestStoreReadAndPreCanceledOperationsDoNotCreateState(test *testing.T) {
 	value := storedPlanFixture()
 	root := filepath.Join(test.TempDir(), "absent")
 	store := NewStore(root, func() time.Time { return value.GeneratedAt }, nil)
@@ -276,6 +276,27 @@ func TestStoreReadAndCancellationDoNotCreateState(test *testing.T) {
 	}
 	if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
 		test.Fatalf("read/cancellation created state: %v", err)
+	}
+}
+
+func TestStoreResolvesBareRelativePlanPaths(test *testing.T) {
+	store := NewStore(filepath.Join(test.TempDir(), "state"), nil, nil)
+	for _, input := range []string{"report", "plan", "report.txt", "./plan_fixture"} {
+		test.Run(input, func(test *testing.T) {
+			want, err := filepath.Abs(input)
+			if err != nil {
+				test.Fatal(err)
+			}
+			path, requestedID, err := store.planPath(input)
+			if err != nil || path != want || requestedID != "" {
+				test.Fatalf("planPath(%q) = %q, %q, %v; want path %q", input, path, requestedID, err, want)
+			}
+		})
+	}
+	for _, input := range []string{"", "report\x00"} {
+		if path, requestedID, err := store.planPath(input); !errors.Is(err, ErrPlanInvalid) || path != "" || requestedID != "" {
+			test.Fatalf("invalid planPath(%q) = %q, %q, %v", input, path, requestedID, err)
+		}
 	}
 }
 
