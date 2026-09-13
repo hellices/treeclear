@@ -2095,8 +2095,9 @@ stdout on failure while preserving successful staged/unstaged binary patches.
 Keep shell-free argv, sanitized environment, bounded output and timeout,
 offline reads, executable-filter and unsafe-index rejection, safe diff flags,
 and primary/bare inventory rules. Validate status mode/object-ID metadata and
-worktree HEAD object-ID syntax before exposing parsed/raw results. Unknown or
-malformed record forms fail closed. Preserve legitimate SHA-1/SHA-256 widths,
+worktree HEAD object-ID and supported short-branch syntax before exposing
+parsed/raw results. Unknown or malformed record forms fail closed. Preserve
+legitimate SHA-1/SHA-256 widths,
 zero IDs for absent/unborn state, rename/copy records, and unmerged stage
 metadata; the snapshot manifest separately requires a known nonzero HEAD.
 These reads do not prove physical repository identity or capture coherence.
@@ -2109,6 +2110,11 @@ an accessible embedded repository replacing an indexed regular file when an ACL
 grants access despite zero POSIX permission bits. It appears in both ordinary
 and unmerged records without a sparse index. This syntactic compatibility does
 not establish that an embedded repository is a safe cleanup target.
+The porcelain parser and snapshot manifest share `gitref.ValidBranchName`:
+bounded (1,024-byte), UTF-8, literal short branch names, including `@`, with no
+checkout-expression expansion. This is the existing snapshot-supported profile,
+not a claim to accept every lower-level Git reference spelling. In particular,
+short-branch rules are stricter than validating an arbitrary full ref.
 
 Harness assessment: existing `runnerFunc`, `internal/testutil` temporary Git
 fixtures, standard Go unit/fuzz tests and native macOS/Windows CI suffice.
@@ -2125,6 +2131,8 @@ state and unchanged index bytes. Pure fuzz tests exercise both porcelain parsers
 - [x] Verify binary patches, rename and unmerged metadata in isolated Git fixtures.
 - [x] Run full normal/race/vet/build/format checks and native macOS/Windows CI on
   implementation head `64a4f84` (CI run `34776255641`).
+- [x] Close the review follow-up on unsupported porcelain branch names using
+  the shared snapshot-supported profile and raw-boundary regressions.
 - [ ] Repeat independent review until clean, verify the final revised head on
   native macOS/Windows CI, then merge and verify the merge commit.
 

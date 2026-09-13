@@ -92,3 +92,58 @@ func TestParseWorktreePreservesNULPathFraming(test *testing.T) {
 		test.Fatalf("inventory = %#v, want %#v, error = %v", actual, want, err)
 	}
 }
+
+func TestParseWorktreeAcceptsSupportedBranchNames(test *testing.T) {
+	head := strings.Repeat("a", 40)
+	for _, entry := range []struct{ name, branch string }{
+		{"at", "@"},
+		{"unicode", "topic/한글-café"},
+		{"unicode space", "topic\u00a0name"},
+		{"punctuation", "topic/a-b_c.d+e,f@g"},
+		{"nested dash", "topic/-child"},
+		{"component trailing dot", "topic./child"},
+		{"uppercase lock suffix", "topic.LOCK"},
+		{"ASCII byte limit", strings.Repeat("a", 1024)},
+		{"Unicode byte limit", strings.Repeat("é", 512)},
+	} {
+		test.Run(entry.name, func(test *testing.T) {
+			input := "worktree /tmp/wt\x00HEAD " + head + "\x00branch refs/heads/" + entry.branch + "\x00\x00"
+			want := []rawWorktree{{Path: "/tmp/wt", Head: head, Branch: entry.branch}}
+			if actual, err := parseWorktreePorcelainZ([]byte(input)); err != nil || !reflect.DeepEqual(actual, want) {
+				test.Fatalf("supported branch %q returned %#v, error = %v", entry.branch, actual, err)
+			}
+		})
+	}
+}
+
+func TestParseWorktreeRejectsUnsupportedBranchNames(test *testing.T) {
+	head := strings.Repeat("a", 40)
+	prefix := "worktree /tmp/earlier\x00HEAD " + head + "\x00branch refs/heads/main\x00\x00"
+	for _, entry := range []struct{ name, branch string }{
+		{"empty", ""},
+		{"reserved HEAD", "HEAD"},
+		{"leading dash", "-name"},
+		{"space", "has space"},
+		{"newline", "line\nname"},
+		{"tab", "branch\tname"},
+		{"DEL", "topic\x7f"},
+		{"consecutive dots", "foo..bar"},
+		{"hidden component", "feature/.hidden"},
+		{"lock component", "feature.lock/child"},
+		{"trailing dot", "topic."},
+		{"checkout expression", "@{-1}"},
+		{"leading slash", "/topic"},
+		{"trailing slash", "topic/"},
+		{"empty component", "topic//child"},
+		{"invalid UTF-8", "topic\xff"},
+		{"ASCII over byte limit", strings.Repeat("a", 1025)},
+		{"Unicode over byte limit", strings.Repeat("é", 512) + "a"},
+	} {
+		test.Run(entry.name, func(test *testing.T) {
+			input := prefix + "worktree /tmp/wt\x00HEAD " + head + "\x00branch refs/heads/" + entry.branch + "\x00\x00"
+			if actual, err := parseWorktreePorcelainZ([]byte(input)); err == nil || actual != nil {
+				test.Fatalf("unsupported branch %q returned %d worktrees, error = %v", entry.branch, len(actual), err)
+			}
+		})
+	}
+}

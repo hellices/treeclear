@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/hellices/treeclear/internal/gitref"
 	"github.com/hellices/treeclear/internal/pathutil"
 )
 
@@ -109,7 +109,7 @@ func ValidateManifest(value Manifest) error {
 		if value.RecoveryRef != "refs/treeclear/recovery/"+value.SnapshotID {
 			return fmt.Errorf("%w: detached HEAD requires its snapshot recovery ref", ErrManifestInvalid)
 		}
-	} else if !validBranch(value.Branch) || value.RecoveryRef != "" {
+	} else if !gitref.ValidBranchName(value.Branch) || value.RecoveryRef != "" {
 		return fmt.Errorf("%w: invalid or conflicting branch identity", ErrManifestInvalid)
 	}
 	if value.UntrackedFiles < 0 || value.UntrackedBytes < 0 || value.UntrackedFiles == 0 && value.UntrackedBytes != 0 {
@@ -149,23 +149,6 @@ func validLowerHex(value string, length int) bool {
 	}
 	for _, character := range value {
 		if !(character >= '0' && character <= '9' || character >= 'a' && character <= 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-func validBranch(value string) bool {
-	if value == "" || len(value) > 1024 || !utf8.ValidString(value) || value == "HEAD" || strings.HasPrefix(value, "-") || strings.HasSuffix(value, ".") || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, `~^:?*[\`) {
-		return false
-	}
-	for _, character := range value {
-		if character <= 32 || character == 127 {
-			return false
-		}
-	}
-	for _, component := range strings.Split(value, "/") {
-		if component == "" || strings.HasPrefix(component, ".") || strings.HasSuffix(component, ".lock") {
 			return false
 		}
 	}

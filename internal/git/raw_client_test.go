@@ -251,6 +251,47 @@ func TestClientRawReadsDiscardMalformedPorcelain(test *testing.T) {
 	}
 }
 
+func TestClientListWorktreesRawDiscardsUnsupportedBranchNames(test *testing.T) {
+	directory := test.TempDir()
+	head := strings.Repeat("a", 40)
+	for _, entry := range []struct{ name, branch string }{
+		{"consecutive dots", "foo..bar"},
+		{"leading dash", "-name"},
+		{"space", "has space"},
+		{"newline", "line\nname"},
+		{"tab", "branch\tname"},
+		{"hidden component", "feature/.hidden"},
+		{"lock component", "feature.lock/child"},
+		{"trailing dot", "topic."},
+		{"checkout expression", "@{-1}"},
+		{"reserved HEAD", "HEAD"},
+		{"invalid UTF-8", "topic\xff"},
+		{"overlong", strings.Repeat("a", 1025)},
+	} {
+		test.Run(entry.name, func(test *testing.T) {
+			contents := []byte("worktree " + filepath.ToSlash(filepath.Join(directory, "primary")) + "\x00HEAD " + head + "\x00branch refs/heads/main\x00\x00" +
+				"worktree " + filepath.ToSlash(filepath.Join(directory, "linked")) + "\x00HEAD " + head + "\x00branch refs/heads/" + entry.branch + "\x00\x00")
+			var commands []string
+			client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+				commands = append(commands, request.Args[0])
+				switch request.Args[0] {
+				case "worktree":
+					return execx.Result{Stdout: bytes.Clone(contents)}, nil
+				case "rev-parse":
+					return execx.Result{Stdout: []byte(directory + "\n")}, nil
+				default:
+					test.Fatalf("unexpected command: %q", request.Args)
+					return execx.Result{}, nil
+				}
+			}))
+			parsed, raw, err := client.ListWorktreesRaw(context.Background(), directory)
+			if err == nil || parsed != nil || raw != nil || !reflect.DeepEqual(commands, []string{"worktree"}) {
+				test.Fatalf("unsupported branch %q: parsed=%d, raw=%d, error=%v, commands=%q", entry.branch, len(parsed), len(raw), err, commands)
+			}
+		})
+	}
+}
+
 func TestClientListWorktreesRawDiscardsMetadataFailures(test *testing.T) {
 	directory := test.TempDir()
 	head := strings.Repeat("a", 40)
