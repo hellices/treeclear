@@ -27,6 +27,57 @@ func TestEnsurePrivateDirectoryCreatesMissingComponents(test *testing.T) {
 	}
 }
 
+func TestPrivateOperationsResolveAncestorBeforeParentTraversal(test *testing.T) {
+	for _, operation := range []string{"read", "write", "directory", "export"} {
+		test.Run(operation, func(test *testing.T) {
+			root := test.TempDir()
+			outer := filepath.Join(root, "outer")
+			target := filepath.Join(outer, "target")
+			if err := EnsurePrivateDirectory(target); err != nil {
+				test.Fatal(err)
+			}
+			alias := filepath.Join(root, "alias")
+			makeSymlinkFixture(test, target, alias)
+			reference := alias + string(filepath.Separator) + ".." + string(filepath.Separator) + "report"
+			wantPath := filepath.Join(outer, "report")
+			wrongPath := filepath.Join(root, "report")
+			contents := []byte("correct private object")
+			switch operation {
+			case "read":
+				writePrivateFixture(test, wantPath, contents)
+				writePrivateFixture(test, wrongPath, []byte("wrong private object"))
+				actual, err := ReadPrivateFile(reference, 1024)
+				if err != nil || !bytes.Equal(actual, contents) {
+					test.Fatalf("read selected wrong object: %q, %v", actual, err)
+				}
+				return
+			case "write":
+				if err := WritePrivateFile(reference, contents); err != nil {
+					test.Fatal(err)
+				}
+			case "directory":
+				if err := EnsurePrivateDirectory(reference + string(filepath.Separator) + "nested"); err != nil {
+					test.Fatal(err)
+				}
+				assertPrivateObject(test, filepath.Join(wantPath, "nested"), true)
+			case "export":
+				staging := alias + string(filepath.Separator) + ".." + string(filepath.Separator) + "state"
+				if err := WritePrivateExport(staging, reference, contents); err != nil {
+					test.Fatal(err)
+				}
+				assertPrivateObject(test, filepath.Join(outer, "state"), true)
+			}
+			if _, err := os.Lstat(wrongPath); !errors.Is(err, fs.ErrNotExist) {
+				test.Fatalf("operation touched the lexically cleaned path: %v", err)
+			}
+			if operation != "directory" {
+				assertContents(test, wantPath, contents)
+				assertPrivateObject(test, wantPath, false)
+			}
+		})
+	}
+}
+
 func TestEnsurePrivateDirectoryNarrowsOnlyRequestedDirectory(test *testing.T) {
 	ancestor := test.TempDir()
 	makeBroadFixture(test, ancestor, true)

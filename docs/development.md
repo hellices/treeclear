@@ -172,11 +172,20 @@ The CLI persists a returned partial plan but exits unsuccessfully. Tests cover
 collector ordering, policy/action/fingerprint coupling, immutability, timeout
 handling, duplicate identities, and summary overflow using synthetic data.
 
+Proven-local process failures carry a direct `*process.WorktreeError` with
+affected input worktree paths. The collector's diagnostic strings preserve
+returned-error order. Builder validates this correspondence and the scope
+before restricting a warning to those candidates; it never infers scope merely
+from matching message text. Enumeration, containment, unbound uncertainty,
+inconsistent diagnostics and otherwise unscoped errors still block globally.
+
 `Store.Latest` authenticates each `.json` plan before considering its generation
-time. It skips only authenticated expired plans; other load errors stop
-selection. Equal generation times use descending plan ID order. The selected
-plan is checked again for expiry and cancellation. Unrelated non-JSON files
-and in-flight private staging files are not plans. Missing state stays missing.
+time. It skips only otherwise-valid authenticated expired plans; filename/ID
+mismatches and invalid generation windows block selection even after expiry.
+Other load errors also stop selection. Equal generation times use descending
+plan ID order. The selected plan is checked again for expiry and cancellation.
+Unrelated non-JSON files and in-flight private staging files are not plans.
+Missing state stays missing.
 
 CLI JSON output retains the canonical signed bytes, with one trailing stdout
 newline; `--output` omits that newline to match storage exactly. Export creates
@@ -189,11 +198,16 @@ without an unsafe fallback. Saved plans survive export or output failures.
 
 Explain loads authenticated state without collecting fresh evidence or parsing
 current repository policy. It prints one candidate's full recorded evidence,
-with plan-level warnings on stderr. Relative discovery roots preserve `..`
-until filesystem resolution, so a symlink cannot silently change the requested
-scope through premature lexical cleaning. Temporary Git end-to-end fixtures
-verify that planning, export, explanation, and expiry rejection leave indexes,
-branches and registrations unchanged. No real-workspace smoke test is used.
+with plan-level warnings on stderr. Discovery roots and private file/state/export
+paths preserve `..` until ancestor resolution, so a symlink cannot silently
+change the requested scope or select another authenticated plan through
+premature lexical cleaning. Relative inputs use the physical working directory,
+not a logical `PWD` alias. Unresolvable traversal fails closed, and final
+file/directory symlinks remain rejected. Final CLI errors also escape control
+characters, including those inside wrapped filesystem errors.
+Temporary Git end-to-end fixtures verify that planning, export, explanation,
+and expiry rejection leave indexes, branches and registrations unchanged.
+No real-workspace smoke test is used.
 
 ## Delivery
 

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -13,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hellices/treeclear/internal/correlate"
 	"github.com/hellices/treeclear/internal/domain"
+	"github.com/hellices/treeclear/internal/policy"
 	"github.com/hellices/treeclear/internal/process"
 	"github.com/hellices/treeclear/internal/testutil"
 )
@@ -28,6 +32,12 @@ type builderProcessFunc func(context.Context, []domain.Worktree) (process.Collec
 
 func (collector builderProcessFunc) Collect(ctx context.Context, worktrees []domain.Worktree) (process.Collection, []error) {
 	return collector(ctx, worktrees)
+}
+
+type builderSourceFunc func(context.Context) ([]process.Info, error)
+
+func (source builderSourceFunc) List(ctx context.Context) ([]process.Info, error) {
+	return source(ctx)
 }
 
 func builderFixture(test *testing.T) (Builder, Request, domain.Worktree, *testutil.Clock) {
@@ -66,6 +76,30 @@ func builderSibling(worktree domain.Worktree, name string) domain.Worktree {
 	worktree.Path = filepath.Join(filepath.Dir(worktree.Path), name)
 	worktree.AdminDir = filepath.Join(filepath.Dir(worktree.AdminDir), name)
 	return worktree
+}
+
+func builderCollectorFixture(test *testing.T) (Builder, Request, []domain.Worktree, process.Info) {
+	test.Helper()
+	builder, request, base, clock := builderFixture(test)
+	worktrees := []domain.Worktree{builderSibling(base, "a-affected"), builderSibling(base, "b-healthy")}
+	for _, worktree := range worktrees {
+		if err := os.MkdirAll(worktree.Path, 0o700); err != nil {
+			test.Fatal(err)
+		}
+	}
+	executable := filepath.Join(request.Roots[0], "synthetic-program")
+	if err := os.WriteFile(executable, []byte("synthetic fixture\n"), 0o700); err != nil {
+		test.Fatal(err)
+	}
+	builder.Inventory = builderInventoryFunc(func(context.Context, []string) ([]domain.Worktree, []error) {
+		return worktrees, nil
+	})
+	info := process.Info{
+		PID: 4242, CreatedAt: clock.Now().Add(-time.Hour), Executable: executable,
+		CWD: worktrees[0].Path, CommandLine: []string{executable},
+		Owner: "synthetic-owner", OwnerRelation: process.OwnerSame, Inspectable: true,
+	}
+	return builder, request, worktrees, info
 }
 
 func requireBuilderZeroPlan(test *testing.T, value domain.Plan, err error) {
@@ -671,6 +705,351 @@ func TestBuilderKeepsProcessActivityScoped(test *testing.T) {
 	}
 	if len(value.Candidates[0].Evidence.Processes) != 1 || value.Candidates[0].Decision.Reasons[0].Code != "active_process" || value.Candidates[1].Action != "remove" {
 		test.Fatalf("process correlation = %#v", value.Candidates)
+	}
+	requireBuilderFingerprints(test, value)
+}
+
+func TestBuilderScopesRealCollectorDiagnostics(test *testing.T) {
+	scenarios := []struct {
+		name        string
+		change      func(*process.Info, domain.Worktree)
+		sourceError error
+		unbound     bool
+	}{
+		{name: "active_local"},
+		{name: "local_name_error", change: func(info *process.Info, worktree domain.Worktree) {
+			info.Inspectable, info.Error = false, "name: access denied"
+		}},
+		{name: "local_creation_time_error", change: func(info *process.Info, worktree domain.Worktree) {
+			info.Inspectable, info.Error = false, "creation time: access denied"
+			info.CreatedAt = time.Time{}
+		}},
+		{name: "local_cwd_error_with_path_hint", change: func(info *process.Info, worktree domain.Worktree) {
+			info.Inspectable, info.Error, info.CWD = false, "cwd: access denied", ""
+			info.CommandLine = append(info.CommandLine, "--workspace="+worktree.Path)
+		}},
+		{name: "unbound_unknown", unbound: true, change: func(info *process.Info, worktree domain.Worktree) {
+			info.Inspectable, info.Error, info.CWD = false, "cwd: access denied", ""
+		}},
+		{name: "incomplete_enumeration", sourceError: errors.New("synthetic enumeration truncated")},
+		{name: "enumeration_deadline", sourceError: context.DeadlineExceeded},
+	}
+	for _, scenario := range scenarios {
+		test.Run(scenario.name, func(test *testing.T) {
+			builder, request, worktrees, info := builderCollectorFixture(test)
+			before, err := builder.Build(context.Background(), request)
+			if err != nil || before.Summary.Safe != 2 {
+				test.Fatalf("baseline plan = %#v, %v", before.Summary, err)
+			}
+			if scenario.change != nil {
+				scenario.change(&info, worktrees[0])
+			}
+			collector := process.Collector{Source: builderSourceFunc(func(context.Context) ([]process.Info, error) {
+				return []process.Info{info}, scenario.sourceError
+			})}
+			collection, collectionErrors := collector.Collect(context.Background(), worktrees)
+			global := scenario.unbound || scenario.sourceError != nil
+			unknown := scenario.change != nil
+			unknownCount := 0
+			if unknown {
+				unknownCount = 1
+			}
+			if collection.Complete != (scenario.sourceError == nil) || (len(collection.GlobalUnknown) != 0) != global || len(collection.Uninspectable) != unknownCount {
+				test.Fatalf("unexpected producer scope: %#v / %v", collection, collectionErrors)
+			}
+			boundCount := 1
+			if scenario.unbound {
+				boundCount = 0
+			}
+			if len(collection.ByWorktree[worktrees[0].Path]) != boundCount || len(collection.ByWorktree[worktrees[1].Path]) != 0 {
+				test.Fatalf("unexpected producer bindings: %#v", collection.ByWorktree)
+			}
+			wantError := unknown || scenario.sourceError != nil
+			errorCount := 0
+			if wantError {
+				errorCount = 1
+			}
+			if len(collectionErrors) != errorCount || len(collection.Errors) != errorCount {
+				test.Fatalf("unexpected producer diagnostics: %v / %v", collectionErrors, collection.Errors)
+			}
+			builder.Processes = collector
+			value, err := builder.Build(context.Background(), request)
+			if (err != nil) != wantError || !validPlanID(value.ID) || len(value.Candidates) != 2 {
+				test.Fatalf("Build() = %#v, %v", value.Summary, err)
+			}
+			if scenario.sourceError != nil && !errors.Is(err, scenario.sourceError) {
+				test.Fatalf("source failure lost: %v", err)
+			}
+			for _, failure := range collectionErrors {
+				if !strings.Contains(err.Error(), failure.Error()) || !strings.Contains(strings.Join(value.Warnings, "\n"), failure.Error()) {
+					test.Fatalf("collection diagnostic %q lost: %v / %v", failure, err, value.Warnings)
+				}
+			}
+			grouped := correlate.Group(worktrees, collection, nil)
+			for index, candidate := range value.Candidates {
+				expected := policy.Evaluate(worktrees[index], grouped[worktrees[index].Path], domain.Policy{Now: builder.Now(), Settings: request.Settings})
+				if candidate.Decision.Classification != expected.Classification {
+					test.Errorf("candidate %q = %s; collector/correlator/policy = %s", candidate.Worktree.Path, candidate.Decision.Classification, expected.Classification)
+				}
+			}
+			if global {
+				requireBuilderBlocked(test, value, err, 2)
+			} else {
+				affected := value.Candidates[0]
+				if affected.Decision.Classification != domain.Protected || affected.Action != "none" || affected.Snapshot.Required || (len(affected.Evidence.Warnings) != 0) != unknown {
+					test.Fatalf("affected candidate = %#v", affected)
+				}
+				if !reflect.DeepEqual(value.Candidates[1], before.Candidates[1]) {
+					test.Fatalf("local process evidence changed healthy candidate: %#v", value.Candidates[1])
+				}
+				if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) {
+					test.Fatalf("scoped summary = %#v", value.Summary)
+				}
+			}
+			if value.Candidates[0].ID != before.Candidates[0].ID || value.Candidates[0].Fingerprint == before.Candidates[0].Fingerprint {
+				test.Fatalf("process evidence did not preserve identity and update fingerprint")
+			}
+			requireBuilderFingerprints(test, value)
+		})
+	}
+}
+
+func TestBuilderScopesCollectorWorktreePathFailure(test *testing.T) {
+	builder, request, worktrees, _ := builderCollectorFixture(test)
+	if err := os.Remove(worktrees[0].Path); err != nil {
+		test.Fatal(err)
+	}
+	builder.Processes = process.Collector{Source: builderSourceFunc(func(context.Context) ([]process.Info, error) {
+		return nil, nil
+	})}
+	value, err := builder.Build(context.Background(), request)
+	if err == nil || !validPlanID(value.ID) || len(value.Candidates) != 2 {
+		test.Fatalf("missing process root = %#v, %v", value.Summary, err)
+	}
+	if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) || value.Candidates[0].Action != "none" || value.Candidates[1].Action != "remove" {
+		test.Fatalf("worktree path failure was not scoped: %#v", value.Summary)
+	}
+	if !strings.Contains(strings.Join(value.Warnings, "\n"), worktrees[0].Path) || len(value.Candidates[0].Evidence.Warnings) == 0 || len(value.Candidates[1].Evidence.Warnings) != 0 {
+		test.Fatalf("worktree path diagnostics = %v / %v / %v", value.Warnings, value.Candidates[0].Evidence.Warnings, value.Candidates[1].Evidence.Warnings)
+	}
+	requireBuilderFingerprints(test, value)
+}
+
+func TestBuilderKeepsUnscopedProcessProblemsGlobal(test *testing.T) {
+	unscoped := errors.New("synthetic unscoped process failure")
+	scenarios := []struct {
+		name   string
+		change func(*process.Collection, *[]error, []domain.Worktree, int32)
+	}{
+		{"returned_error", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			*failures = append(*failures, unscoped)
+		}},
+		{"collection_error", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			collection.Errors = append(collection.Errors, unscoped.Error())
+		}},
+		{"unscoped_returned_error_with_local_text", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			*failures = []error{errors.New((*failures)[0].Error())}
+		}},
+		{"extra_unscoped_error_with_local_text", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			failure := errors.New((*failures)[0].Error())
+			*failures = append(*failures, failure)
+			collection.Errors = append(collection.Errors, failure.Error())
+		}},
+		{"joined_local_and_unscoped_errors", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			failure := errors.Join((*failures)[0], unscoped)
+			*failures = []error{failure}
+			collection.Errors = []string{failure.Error()}
+		}},
+		{"wrapped_local_error", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			failure := fmt.Errorf("wrapped local failure: %w", (*failures)[0])
+			*failures = []error{failure}
+			collection.Errors = []string{failure.Error()}
+		}},
+		{"ordered_projection_mismatch", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			failure := &process.WorktreeError{Err: errors.New("second scoped diagnostic"), Paths: []string{worktrees[0].Path}}
+			collection.Errors = []string{failure.Error(), (*failures)[0].Error()}
+			*failures = append(*failures, failure)
+		}},
+		{"collection_diagnostic_without_error_provenance", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			*failures = nil
+		}},
+		{"unmatched_pid_diagnostic", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			collection.Errors = append(collection.Errors, fmt.Sprintf("process %d: an unscoped inspection failure", pid))
+		}},
+		{"deadline_despite_matching_diagnostic", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			evidence := collection.Uninspectable[pid]
+			evidence.Error = context.DeadlineExceeded.Error()
+			collection.Uninspectable[pid] = evidence
+			collection.ByWorktree[worktrees[0].Path] = []domain.ProcessEvidence{evidence}
+			*failures = []error{fmt.Errorf("process %d: %w", pid, context.DeadlineExceeded)}
+			collection.Errors = []string{(*failures)[0].Error()}
+		}},
+		{"typed_deadline", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			failure := &process.WorktreeError{Err: context.DeadlineExceeded, Paths: []string{worktrees[0].Path}}
+			*failures = []error{failure}
+			collection.Errors = []string{failure.Error()}
+		}},
+		{"typed_cancellation", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			failure := &process.WorktreeError{Err: context.Canceled, Paths: []string{worktrees[0].Path}}
+			*failures = []error{failure}
+			collection.Errors = []string{failure.Error()}
+		}},
+		{"duplicate_returned_diagnostic", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			*failures = append(*failures, (*failures)[0])
+		}},
+		{"duplicate_collection_diagnostic", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			collection.Errors = append(collection.Errors, collection.Errors[0])
+		}},
+		{"silent_incomplete", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			collection.Complete = false
+		}},
+		{"global_unknown_overrides_binding", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			collection.GlobalUnknown = append(collection.GlobalUnknown, collection.Uninspectable[pid])
+		}},
+		{"unrepresented_unknown", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			evidence := collection.Uninspectable[pid]
+			evidence.PID++
+			collection.Uninspectable[evidence.PID] = evidence
+		}},
+		{"mismatched_unknown_identity", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			evidence := collection.Uninspectable[pid]
+			evidence.CreatedAt = evidence.CreatedAt.Add(time.Second)
+			collection.Uninspectable[pid] = evidence
+		}},
+		{"conflicting_pid_evidence", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			evidence := collection.Uninspectable[pid]
+			evidence.State, evidence.Error = domain.EvidenceInactive, ""
+			collection.ByWorktree[worktrees[1].Path] = []domain.ProcessEvidence{evidence}
+		}},
+		{"binding_outside_inventory", func(collection *process.Collection, failures *[]error, worktrees []domain.Worktree, pid int32) {
+			collection.ByWorktree[filepath.Join(filepath.Dir(worktrees[0].Path), "not-in-inventory")] = collection.ByWorktree[worktrees[0].Path]
+			delete(collection.ByWorktree, worktrees[0].Path)
+		}},
+	}
+	for _, scenario := range scenarios {
+		test.Run(scenario.name, func(test *testing.T) {
+			builder, request, worktrees, info := builderCollectorFixture(test)
+			info.Inspectable, info.Error = false, "name: access denied"
+			collector := process.Collector{Source: builderSourceFunc(func(context.Context) ([]process.Info, error) {
+				return []process.Info{info}, nil
+			})}
+			var collected process.Collection
+			var collectedJSON []byte
+			var returnedErrors []error
+			builder.Processes = builderProcessFunc(func(ctx context.Context, inventory []domain.Worktree) (process.Collection, []error) {
+				collection, failures := collector.Collect(ctx, inventory)
+				scenario.change(&collection, &failures, worktrees, info.PID)
+				var err error
+				collectedJSON, err = json.Marshal(collection)
+				if err != nil {
+					test.Fatal(err)
+				}
+				collected = collection
+				returnedErrors = slices.Clone(failures)
+				return collection, failures
+			})
+			value, err := builder.Build(context.Background(), request)
+			requireBuilderBlocked(test, value, err, 2)
+			if scenario.name == "returned_error" && !errors.Is(err, unscoped) {
+				test.Fatalf("unscoped error identity lost: %v", err)
+			}
+			for _, failure := range returnedErrors {
+				if !errors.Is(err, failure) {
+					test.Fatalf("returned error identity lost: %v / %v", failure, err)
+				}
+			}
+			after, marshalError := json.Marshal(collected)
+			if marshalError != nil || !bytes.Equal(collectedJSON, after) {
+				test.Fatalf("Builder mutated process collection: %s / %s, %v", collectedJSON, after, marshalError)
+			}
+		})
+	}
+}
+
+func TestBuilderKeepsMalformedProcessErrorScopesGlobal(test *testing.T) {
+	scenarios := []struct {
+		name         string
+		paths        func([]domain.Worktree) []string
+		missingCause bool
+	}{
+		{"nil_paths", func(worktrees []domain.Worktree) []string { return nil }, false},
+		{"empty_paths", func(worktrees []domain.Worktree) []string { return []string{} }, false},
+		{"empty_path", func(worktrees []domain.Worktree) []string { return []string{""} }, false},
+		{"relative_path", func(worktrees []domain.Worktree) []string { return []string{filepath.Base(worktrees[0].Path)} }, false},
+		{"noncanonical_path", func(worktrees []domain.Worktree) []string {
+			return []string{worktrees[0].Path + string(filepath.Separator) + "."}
+		}, false},
+		{"unknown_path", func(worktrees []domain.Worktree) []string {
+			return []string{filepath.Join(filepath.Dir(worktrees[0].Path), "not-in-inventory")}
+		}, false},
+		{"mixed_known_and_unknown_paths", func(worktrees []domain.Worktree) []string {
+			return []string{worktrees[0].Path, filepath.Join(filepath.Dir(worktrees[0].Path), "not-in-inventory")}
+		}, false},
+		{"duplicate_paths", func(worktrees []domain.Worktree) []string {
+			return []string{worktrees[0].Path, worktrees[0].Path}
+		}, false},
+		{"missing_cause", func(worktrees []domain.Worktree) []string { return []string{worktrees[0].Path} }, true},
+	}
+	for _, scenario := range scenarios {
+		test.Run(scenario.name, func(test *testing.T) {
+			builder, request, worktrees, info := builderCollectorFixture(test)
+			info.Inspectable, info.Error = false, "name: access denied"
+			collector := process.Collector{Source: builderSourceFunc(func(context.Context) ([]process.Info, error) {
+				return []process.Info{info}, nil
+			})}
+			paths := scenario.paths(worktrees)
+			originalPaths := slices.Clone(paths)
+			var returnedError error
+			builder.Processes = builderProcessFunc(func(ctx context.Context, inventory []domain.Worktree) (process.Collection, []error) {
+				collection, failures := collector.Collect(ctx, inventory)
+				failure := &process.WorktreeError{Err: failures[0], Paths: paths}
+				if scenario.missingCause {
+					failure.Err = nil
+				}
+				returnedError = failure
+				collection.Errors = []string{failure.Error()}
+				return collection, []error{failure}
+			})
+			value, err := builder.Build(context.Background(), request)
+			requireBuilderBlocked(test, value, err, 2)
+			if !errors.Is(err, returnedError) || !reflect.DeepEqual(paths, originalPaths) {
+				test.Fatalf("malformed scoped error lost or mutated: %v / %v / %v", err, paths, originalPaths)
+			}
+		})
+	}
+}
+
+func TestBuilderReconcilesRepeatedScopedDiagnostics(test *testing.T) {
+	builder, request, worktrees, info := builderCollectorFixture(test)
+	info.Inspectable, info.Error = false, "name: access denied"
+	collector := process.Collector{Source: builderSourceFunc(func(context.Context) ([]process.Info, error) {
+		return []process.Info{info}, nil
+	})}
+	var returnedError *process.WorktreeError
+	var originalPaths []string
+	builder.Processes = builderProcessFunc(func(ctx context.Context, inventory []domain.Worktree) (process.Collection, []error) {
+		collection, failures := collector.Collect(ctx, inventory)
+		var scoped bool
+		returnedError, scoped = failures[0].(*process.WorktreeError)
+		if !scoped {
+			test.Fatalf("collector returned untyped local error: %T", failures[0])
+		}
+		originalPaths = slices.Clone(returnedError.Paths)
+		collection.Errors = append(collection.Errors, collection.Errors[0])
+		return collection, append(failures, failures[0])
+	})
+	value, err := builder.Build(context.Background(), request)
+	if err == nil || !validPlanID(value.ID) || len(value.Candidates) != 2 {
+		test.Fatalf("repeated scoped diagnostics = %#v, %v", value.Summary, err)
+	}
+	if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) {
+		test.Fatalf("repeated scoped diagnostics changed scope: %#v", value.Summary)
+	}
+	if value.Candidates[0].Action != "none" || value.Candidates[0].Snapshot.Required || value.Candidates[1].Action != "remove" || !value.Candidates[1].Snapshot.Required || len(value.Candidates[1].Evidence.Warnings) != 0 {
+		test.Fatalf("repeated diagnostics changed actions or warnings: %#v", value.Candidates)
+	}
+	if !errors.Is(err, returnedError) || !reflect.DeepEqual(returnedError.Paths, originalPaths) {
+		test.Fatalf("scoped error lost or mutated: %v / %v / %v", err, returnedError.Paths, originalPaths)
 	}
 	requireBuilderFingerprints(test, value)
 }

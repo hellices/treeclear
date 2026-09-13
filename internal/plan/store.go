@@ -37,7 +37,7 @@ func NewStore(root string, now func() time.Time, integrityKey []byte) Store {
 		store.initErr = fmt.Errorf("%w: state directory is required", ErrPlanInvalid)
 		return store
 	}
-	store.root, store.initErr = filepath.Abs(root)
+	store.root, store.initErr = fssecure.ResolvePrivatePath(root)
 	return store
 }
 
@@ -109,11 +109,11 @@ func (store Store) Load(ctx context.Context, idOrPath string) (domain.Plan, erro
 	if err != nil {
 		return domain.Plan{}, err
 	}
-	if err := validateStoredPlan(value, store.now()); err != nil {
-		return domain.Plan{}, err
-	}
 	if requestedID != "" && value.ID != requestedID {
 		return domain.Plan{}, fmt.Errorf("%w: requested identifier does not match", ErrPlanIntegrity)
+	}
+	if err := validateStoredPlan(value, store.now()); err != nil {
+		return domain.Plan{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return domain.Plan{}, err
@@ -144,8 +144,7 @@ func (store Store) planPath(idOrPath string) (string, string, error) {
 	if idOrPath == "" || strings.ContainsRune(idOrPath, 0) {
 		return "", "", ErrPlanInvalid
 	}
-	path, err := filepath.Abs(idOrPath)
-	return path, "", err
+	return idOrPath, "", nil
 }
 
 func validateStoredPlan(value domain.Plan, now time.Time) error {
@@ -158,11 +157,11 @@ func validateStoredPlan(value domain.Plan, now time.Time) error {
 	if !validPlanID(value.ID) {
 		return fmt.Errorf("%w: invalid identifier", ErrPlanInvalid)
 	}
-	if !value.ExpiresAt.After(now) {
-		return ErrPlanExpired
-	}
 	if !value.GeneratedAt.IsZero() && (value.GeneratedAt.After(now) || !value.GeneratedAt.Before(value.ExpiresAt)) {
 		return fmt.Errorf("%w: invalid generation time", ErrPlanInvalid)
+	}
+	if !value.ExpiresAt.After(now) {
+		return ErrPlanExpired
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/fssecure"
 	"github.com/hellices/treeclear/internal/testutil"
 )
@@ -90,6 +91,45 @@ func TestStoreLatestRejectsInvalidDocumentsInsteadOfFallingBack(test *testing.T)
 			latest, err := store.Latest(context.Background())
 			if err == nil || latest.ID != "" || len(latest.Candidates) != 0 {
 				test.Fatalf("invalid document silently skipped: %q, %v", latest.ID, err)
+			}
+		})
+	}
+}
+
+func TestStoreLatestRejectsExpiredInvalidDocuments(test *testing.T) {
+	cases := []struct {
+		name   string
+		change func(*domain.Plan)
+		want   error
+	}{
+		{"mismatched_id", func(value *domain.Plan) { value.ID = "plan_different" }, ErrPlanIntegrity},
+		{"generation_at_expiry", func(value *domain.Plan) { value.GeneratedAt = value.ExpiresAt }, ErrPlanInvalid},
+		{"generation_after_expiry", func(value *domain.Plan) { value.GeneratedAt = value.ExpiresAt.Add(time.Nanosecond) }, ErrPlanInvalid},
+	}
+	for _, scenario := range cases {
+		test.Run(scenario.name, func(test *testing.T) {
+			value := storedPlanFixture()
+			value.ID = "plan_available"
+			clock := testutil.NewClock(value.GeneratedAt)
+			root := filepath.Join(test.TempDir(), "state")
+			key := bytes.Repeat([]byte{0x42}, 32)
+			store := NewStore(root, clock.Now, key)
+			saveFixture(test, store, value)
+			value.ID = "plan_invalid"
+			value.ExpiresAt = clock.Now().Add(time.Minute)
+			path := filepath.Join(root, "plans", value.ID+".json")
+			scenario.change(&value)
+			contents, err := encodeSignedPlan(value, key)
+			if err != nil {
+				test.Fatal(err)
+			}
+			if err := fssecure.WritePrivateFile(path, contents); err != nil {
+				test.Fatal(err)
+			}
+			clock.Advance(2 * time.Minute)
+			latest, err := store.Latest(context.Background())
+			if !errors.Is(err, scenario.want) || errors.Is(err, ErrPlanExpired) || latest.ID != "" || len(latest.Candidates) != 0 {
+				test.Fatalf("Latest skipped invalid expired document: %q, %v; want %v", latest.ID, err, scenario.want)
 			}
 		})
 	}

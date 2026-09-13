@@ -1903,18 +1903,31 @@ Task 7C execution details:
   produce an inspectable, blocked plan and an error; the CLI saves and prints
   that plan but exits unsuccessfully. Collection diagnostics never enable a
   removal action. The core-only adapter limitation remains visible.
+- The process collector marks proven-local failures with a direct
+  `*process.WorktreeError` and the affected input worktree paths. Its string
+  diagnostics remain an ordered projection of returned errors. The builder
+  checks that correspondence and scope, not message similarity, before keeping
+  a failure local. Enumeration, containment, unbound uncertainty, inconsistent
+  diagnostics, and errors without proven scope remain globally blocking.
 - Candidate IDs are stable for a worktree identity; plan IDs combine canonical
   content with fresh cryptographic randomness. Fingerprints include the final
   decision, action, and snapshot requirements. Only safe candidates default to
   `remove`, with a required snapshot; all other actions are `none`.
 - Default `explain` selects by authenticated generation time, not filesystem
-  timestamps, with plan ID as a deterministic tie breaker. Only authenticated
-  expired plans are skipped. Malformed, inaccessible, or unauthenticated plan
-  documents stop selection rather than silently falling back. It never falls
-  back to an older plan merely to find the requested candidate.
+  timestamps, with plan ID as a deterministic tie breaker. Only otherwise-valid
+  authenticated expired plans are skipped. Filename/ID mismatches and invalid
+  generation windows block selection even after expiry. Malformed,
+  inaccessible, or unauthenticated documents stop selection rather than
+  silently falling back. It never falls back to an older plan merely to find
+  the requested candidate.
 - Explicit `explain --plan` does not collect Git/process state or re-evaluate
   current configuration. It displays the authenticated plan's recorded reasons
   and evidence. Missing state is an error, not a reason to initialize storage.
+- Explicit file, state, and export paths resolve existing ancestors before
+  cleaning parent traversal; relative inputs start at the physical working
+  directory rather than a logical `PWD` alias. Unresolvable traversal fails
+  closed; final-object symlinks remain rejected. Final CLI errors are escaped
+  at the stderr output boundary, including wrapped filesystem errors.
 - Exports are independent private copies with exclusive publication, not hard
   links to the canonical plan and not overwrite operations. Existing export
   parent permissions are preserved; only newly created parent directories are

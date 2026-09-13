@@ -118,19 +118,19 @@ func (builder Builder) Build(ctx context.Context, request Request) (domain.Plan,
 		return abort(err)
 	}
 	processes := process.Collection{Complete: true}
+	var processErrors []error
 	if len(worktrees) != 0 {
 		processContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-		var processErrors []error
 		processes, processErrors = builder.Processes.Collect(processContext, cloneBuildWorktrees(worktrees))
 		deadlineError := processContext.Err()
 		cancel()
-		for _, failure := range processErrors {
-			report("process collection", failure, true)
-		}
 		report("process collection", deadlineError, true)
 	}
-	for _, failure := range buildProcessProblems(processes) {
-		report("process collection", failure, true)
+	for _, problem := range buildProcessProblems(worktrees, processes, processErrors) {
+		warning := report("process collection", problem.failure, len(problem.paths) == 0)
+		for _, path := range problem.paths {
+			worktreeWarnings[path] = append(worktreeWarnings[path], warning)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return abort(err)
@@ -308,37 +308,102 @@ func buildWorktreeProblems(worktree domain.Worktree) []error {
 	return failures
 }
 
-func buildProcessProblems(collection process.Collection) []error {
-	var failures []error
+type buildProcessProblem struct {
+	failure error
+	paths   []string
+}
+
+func buildProcessProblems(worktrees []domain.Worktree, collection process.Collection, returnedErrors []error) []buildProcessProblem {
+	var failures []buildProcessProblem
 	if !collection.Complete {
-		failures = append(failures, errors.New("process enumeration is incomplete"))
+		failures = append(failures, buildProcessProblem{failure: errors.New("process enumeration is incomplete")})
 	}
-	for _, diagnostic := range collection.Errors {
-		if diagnostic == "" {
-			diagnostic = "process collection failed without a diagnostic"
-		}
-		failures = append(failures, errors.New(diagnostic))
-	}
-	inspect := func(evidence domain.ProcessEvidence, unknown bool) {
+	inspect := func(evidence domain.ProcessEvidence, unknown bool, paths []string) {
 		if evidence.Error != "" {
-			failures = append(failures, fmt.Errorf("process %d: %s", evidence.PID, evidence.Error))
+			failures = append(failures, buildProcessProblem{fmt.Errorf("process %d: %s", evidence.PID, evidence.Error), paths})
 		} else if unknown || (evidence.State != domain.EvidenceActive && evidence.State != domain.EvidenceInactive && evidence.State != domain.EvidenceNotApplicable) {
-			failures = append(failures, fmt.Errorf("unknown process evidence for PID %d", evidence.PID))
+			failures = append(failures, buildProcessProblem{fmt.Errorf("unknown process evidence for PID %d", evidence.PID), paths})
+		}
+	}
+	knownPaths := make(map[string]bool, len(worktrees))
+	for _, worktree := range worktrees {
+		knownPaths[worktree.Path] = true
+	}
+	type processBinding struct {
+		evidence  domain.ProcessEvidence
+		paths     []string
+		ambiguous bool
+	}
+	bindings := make(map[int32]processBinding)
+	for path, records := range collection.ByWorktree {
+		var paths []string
+		if knownPaths[path] {
+			paths = []string{path}
+		}
+		for _, evidence := range records {
+			inspect(evidence, false, paths)
+			binding, found := bindings[evidence.PID]
+			if !found {
+				binding.evidence = evidence
+			}
+			binding.ambiguous = binding.ambiguous || len(paths) == 0 || binding.evidence != evidence
+			binding.paths = append(binding.paths, paths...)
+			bindings[evidence.PID] = binding
 		}
 	}
 	for _, evidence := range collection.GlobalUnknown {
-		inspect(evidence, true)
+		inspect(evidence, true, nil)
 	}
-	for _, evidence := range collection.Uninspectable {
-		inspect(evidence, true)
-	}
-	for _, records := range collection.ByWorktree {
-		for _, evidence := range records {
-			inspect(evidence, false)
+	for pid, evidence := range collection.Uninspectable {
+		binding := bindings[pid]
+		paths := binding.paths
+		if pid <= 0 || pid != evidence.PID || evidence.State != domain.EvidenceUnknown || binding.ambiguous || binding.evidence != evidence {
+			paths = nil
 		}
+		inspect(evidence, true, paths)
 	}
-	sort.Slice(failures, func(first, second int) bool { return failures[first].Error() < failures[second].Error() })
+	returnedScopes := make([][]string, len(returnedErrors))
+	for index, failure := range returnedErrors {
+		if nilBuildValue(failure) {
+			continue
+		}
+		if index < len(collection.Errors) && collection.Errors[index] != "" && collection.Errors[index] == failure.Error() {
+			returnedScopes[index] = buildProcessErrorPaths(failure, knownPaths)
+		}
+		failures = append(failures, buildProcessProblem{failure, returnedScopes[index]})
+	}
+	for index, diagnostic := range collection.Errors {
+		var paths []string
+		if index < len(returnedScopes) {
+			paths = returnedScopes[index]
+		}
+		if diagnostic == "" {
+			diagnostic = "process collection failed without a diagnostic"
+		}
+		failures = append(failures, buildProcessProblem{errors.New(diagnostic), paths})
+	}
+	sort.Slice(failures, func(first, second int) bool {
+		return failures[first].failure.Error() < failures[second].failure.Error()
+	})
 	return failures
+}
+
+func buildProcessErrorPaths(failure error, knownPaths map[string]bool) []string {
+	scoped, ok := failure.(*process.WorktreeError)
+	if !ok || scoped == nil || nilBuildValue(scoped.Err) || len(scoped.Paths) == 0 {
+		return nil
+	}
+	if errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded) {
+		return nil
+	}
+	seenPaths := make(map[string]bool, len(scoped.Paths))
+	for _, path := range scoped.Paths {
+		if !knownPaths[path] || seenPaths[path] {
+			return nil
+		}
+		seenPaths[path] = true
+	}
+	return slices.Clone(scoped.Paths)
 }
 
 func sortedBuildWarnings(warnings []string) []string {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hellices/treeclear/internal/domain"
+	"github.com/hellices/treeclear/internal/fssecure"
 	"github.com/hellices/treeclear/internal/testutil"
 )
 
@@ -38,7 +39,11 @@ func TestStoreRoundTripByIDAndPath(test *testing.T) {
 		test.Fatal(err)
 	}
 	path := saveFixture(test, store, value)
-	if path != filepath.Join(root, "plans", value.ID+".json") {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if path != filepath.Join(resolvedRoot, "plans", value.ID+".json") {
 		test.Fatalf("plan path = %q", path)
 	}
 	for _, input := range []string{value.ID, path} {
@@ -74,13 +79,44 @@ func TestStoreRejectsExpiredPlan(test *testing.T) {
 	store := NewStore(filepath.Join(test.TempDir(), "state"), clock.Now, bytes.Repeat([]byte{0x42}, 32))
 	path := saveFixture(test, store, value)
 	clock.Advance(15*time.Minute - time.Nanosecond)
-	if _, err := store.Load(context.Background(), path); err != nil {
-		test.Fatalf("plan before expiry rejected: %v", err)
+	for _, input := range []string{value.ID, path} {
+		if _, err := store.Load(context.Background(), input); err != nil {
+			test.Fatalf("plan before expiry rejected for %q: %v", input, err)
+		}
 	}
 	clock.Advance(time.Nanosecond)
-	loaded, err := store.Load(context.Background(), path)
+	for _, input := range []string{value.ID, path} {
+		loaded, err := store.Load(context.Background(), input)
+		if !errors.Is(err, ErrPlanExpired) || loaded.ID != "" || len(loaded.Candidates) != 0 {
+			test.Fatalf("expired Load(%q) = %q, %v", input, loaded.ID, err)
+		}
+	}
+}
+
+func TestStoreLoadRejectsExpiredIDMismatch(test *testing.T) {
+	value := storedPlanFixture()
+	clock := testutil.NewClock(value.GeneratedAt)
+	value.ExpiresAt = clock.Now().Add(time.Minute)
+	root := filepath.Join(test.TempDir(), "state")
+	store := NewStore(root, clock.Now, bytes.Repeat([]byte{0x42}, 32))
+	path := saveFixture(test, store, value)
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		test.Fatal(err)
+	}
+	aliasID := "plan_alias"
+	aliasPath := filepath.Join(root, "plans", aliasID+".json")
+	if err := fssecure.WritePrivateFile(aliasPath, contents); err != nil {
+		test.Fatal(err)
+	}
+	clock.Advance(time.Minute)
+	loaded, err := store.Load(context.Background(), aliasID)
+	if !errors.Is(err, ErrPlanIntegrity) || errors.Is(err, ErrPlanExpired) || loaded.ID != "" || len(loaded.Candidates) != 0 {
+		test.Fatalf("expired ID mismatch = %q, %v; want integrity failure", loaded.ID, err)
+	}
+	loaded, err = store.Load(context.Background(), aliasPath)
 	if !errors.Is(err, ErrPlanExpired) || loaded.ID != "" || len(loaded.Candidates) != 0 {
-		test.Fatalf("expired plan = %q, %v", loaded.ID, err)
+		test.Fatalf("expired explicit-path load = %q, %v; want expiry failure", loaded.ID, err)
 	}
 }
 
@@ -91,9 +127,14 @@ func TestStoreAuthenticatesBeforeMetadataValidation(test *testing.T) {
 		trustedError error
 	}{
 		{"schema", func(value *domain.Plan) { value.SchemaVersion = 2 }, ErrPlanSchema},
-		{"expiry", func(value *domain.Plan) { value.ExpiresAt = value.GeneratedAt }, ErrPlanExpired},
+		{"expiry", func(value *domain.Plan) {
+			value.ExpiresAt = value.GeneratedAt
+			value.GeneratedAt = value.GeneratedAt.Add(-time.Minute)
+		}, ErrPlanExpired},
 		{"identifier", func(value *domain.Plan) { value.ID = "../outside" }, ErrPlanInvalid},
 		{"future generation", func(value *domain.Plan) { value.GeneratedAt = value.GeneratedAt.Add(time.Minute) }, ErrPlanInvalid},
+		{"expired generation at expiry", func(value *domain.Plan) { value.ExpiresAt = value.GeneratedAt }, ErrPlanInvalid},
+		{"expired generation after expiry", func(value *domain.Plan) { value.ExpiresAt = value.GeneratedAt.Add(-time.Minute) }, ErrPlanInvalid},
 	}
 	for _, scenario := range cases {
 		test.Run(scenario.name, func(test *testing.T) {
@@ -128,8 +169,8 @@ func TestStoreAuthenticatesBeforeMetadataValidation(test *testing.T) {
 			if err := os.WriteFile(path, contents, 0o600); err != nil {
 				test.Fatal(err)
 			}
-			if _, err := store.Load(context.Background(), path); !errors.Is(err, scenario.trustedError) {
-				test.Fatalf("authenticated metadata error = %v, want %v", err, scenario.trustedError)
+			if loaded, err := store.Load(context.Background(), path); !errors.Is(err, scenario.trustedError) || loaded.ID != "" || len(loaded.Candidates) != 0 {
+				test.Fatalf("authenticated metadata load = %q, %v, want %v", loaded.ID, err, scenario.trustedError)
 			}
 		})
 	}
@@ -279,17 +320,13 @@ func TestStoreReadAndPreCanceledOperationsDoNotCreateState(test *testing.T) {
 	}
 }
 
-func TestStoreResolvesBareRelativePlanPaths(test *testing.T) {
+func TestStorePreservesExplicitPlanPathText(test *testing.T) {
 	store := NewStore(filepath.Join(test.TempDir(), "state"), nil, nil)
-	for _, input := range []string{"report", "plan", "report.txt", "./plan_fixture"} {
+	for _, input := range []string{"report", "plan", "report.txt", "./plan_fixture", "alias/../report"} {
 		test.Run(input, func(test *testing.T) {
-			want, err := filepath.Abs(input)
-			if err != nil {
-				test.Fatal(err)
-			}
 			path, requestedID, err := store.planPath(input)
-			if err != nil || path != want || requestedID != "" {
-				test.Fatalf("planPath(%q) = %q, %q, %v; want path %q", input, path, requestedID, err, want)
+			if err != nil || path != input || requestedID != "" {
+				test.Fatalf("planPath(%q) = %q, %q, %v; want unchanged path", input, path, requestedID, err)
 			}
 		})
 	}
@@ -345,6 +382,27 @@ func TestStoreCanceledAfterValidationDoesNotCreateState(test *testing.T) {
 	}
 	if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
 		test.Fatalf("canceled validation created state: %v", err)
+	}
+}
+
+func TestStoreLoadCanceledAfterValidationReturnsNoPlan(test *testing.T) {
+	value := storedPlanFixture()
+	root := filepath.Join(test.TempDir(), "state")
+	key := bytes.Repeat([]byte{0x42}, 32)
+	path := saveFixture(test, NewStore(root, func() time.Time { return value.GeneratedAt }, key), value)
+	for _, input := range []string{value.ID, path} {
+		test.Run(input, func(test *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			store := NewStore(root, func() time.Time {
+				cancel()
+				return value.GeneratedAt
+			}, key)
+			loaded, err := store.Load(ctx, input)
+			if !errors.Is(err, context.Canceled) || loaded.ID != "" || len(loaded.Candidates) != 0 {
+				test.Fatalf("canceled Load(%q) = %q, %v", input, loaded.ID, err)
+			}
+		})
 	}
 }
 

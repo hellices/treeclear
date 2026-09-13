@@ -59,7 +59,7 @@ func Execute(ctx context.Context, arguments []string, stdout, stderr io.Writer, 
 	})
 	command.SetArgs(arguments)
 	if err := command.ExecuteContext(ctx); err != nil {
-		_, _ = fmt.Fprintln(command.ErrOrStderr(), err)
+		_, _ = fmt.Fprintf(command.ErrOrStderr(), "%q\n", err.Error())
 		return 1
 	}
 	return 0
