@@ -301,10 +301,13 @@ func TestEstimateBytesSkipsRootGitMetadata(test *testing.T) {
 func TestEstimateBytesCountsDistinctCaseSensitiveGitNames(test *testing.T) {
 	repository := testutil.NewRepository(test)
 	path := filepath.Join(repository.Root, ".GIT")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
+	if _, err := os.Lstat(path); err == nil {
 		test.Skip("filesystem has case-insensitive directory names")
-	} else if err != nil {
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		test.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
 		test.Fatal(err)
 	}
 	written, writeError := file.WriteString("ordinary worktree bytes")
