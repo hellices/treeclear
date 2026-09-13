@@ -2104,6 +2104,11 @@ Mode fields accept canonical Git encodings; object IDs accept ASCII hex with a
 consistent width within each status record. Rename scores use canonical decimal
 0–100 and must agree with the record's rename/copy status. Known ordinary `DA`
 and `DD`, worktree-side renames/copies, and absent-stage modes remain supported.
+Worktree mode `040000` also remains supported: native macOS Git can emit it for
+an accessible embedded repository replacing an indexed regular file when an ACL
+grants access despite zero POSIX permission bits. It appears in both ordinary
+and unmerged records without a sparse index. This syntactic compatibility does
+not establish that an embedded repository is a safe cleanup target.
 
 Harness assessment: existing `runnerFunc`, `internal/testutil` temporary Git
 fixtures, standard Go unit/fuzz tests and native macOS/Windows CI suffice.
@@ -2118,8 +2123,10 @@ state and unchanged index bytes. Pure fuzz tests exercise both porcelain parsers
 - [x] Write failing raw-byte, failure-output and malformed-protocol regressions.
 - [x] Implement shared guarded reads and the relevant parser checks.
 - [x] Verify binary patches, rename and unmerged metadata in isolated Git fixtures.
-- [ ] Run full normal/race/vet/build/format checks and final-head native CI.
-- [ ] Repeat independent review until clean, then merge and verify the merge commit.
+- [x] Run full normal/race/vet/build/format checks and native macOS/Windows CI on
+  implementation head `64a4f84` (CI run `34776255641`).
+- [ ] Repeat independent review until clean, verify the final revised head on
+  native macOS/Windows CI, then merge and verify the merge commit.
 
 Remaining Task 8 lifecycle work listed above stays pending; Task 9 is not ready.
 
