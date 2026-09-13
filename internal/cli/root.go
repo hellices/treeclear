@@ -37,6 +37,8 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 	root.SetErr(dependencies.Stderr)
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.AddCommand(newScanCommand(dependencies))
+	root.AddCommand(newPlanCommand(dependencies))
+	root.AddCommand(newExplainCommand(dependencies))
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print the Treeclear version",
@@ -57,7 +59,7 @@ func Execute(ctx context.Context, arguments []string, stdout, stderr io.Writer, 
 	})
 	command.SetArgs(arguments)
 	if err := command.ExecuteContext(ctx); err != nil {
-		_, _ = fmt.Fprintln(command.ErrOrStderr(), err)
+		_, _ = fmt.Fprintf(command.ErrOrStderr(), "%q\n", err.Error())
 		return 1
 	}
 	return 0

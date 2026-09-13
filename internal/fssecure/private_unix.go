@@ -14,6 +14,10 @@ import (
 )
 
 func preparePrivatePath(path string) (string, error) {
+	path, err := resolvePrivateParents(path)
+	if err != nil {
+		return "", err
+	}
 	return filepath.Abs(path)
 }
 

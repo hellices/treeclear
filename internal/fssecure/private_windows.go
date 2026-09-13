@@ -27,25 +27,39 @@ func preparePrivatePath(path string) (string, error) {
 	if strings.HasPrefix(path, `\\.\`) || strings.HasPrefix(path, `\??\`) {
 		return "", fmt.Errorf("unsupported Windows namespace: %w", fs.ErrInvalid)
 	}
-	path, err := filepath.Abs(path)
+	if err := validateWindowsPrivatePath(path); err != nil {
+		return "", err
+	}
+	path, err := resolvePrivateParents(path)
 	if err != nil {
 		return "", err
 	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if err := validateWindowsPrivatePath(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func validateWindowsPrivatePath(path string) error {
 	volume := filepath.VolumeName(path)
 	for _, component := range strings.Split(strings.TrimPrefix(path, volume), `\`) {
-		if component == "" {
+		if component == "" || component == "." || component == ".." {
 			continue
 		}
 		if !filepath.IsLocal(component) || strings.ContainsAny(component, `<>:"|?*`) || strings.HasSuffix(component, ".") || strings.HasSuffix(component, " ") {
-			return "", fmt.Errorf("unsafe Windows path component %q: %w", component, fs.ErrInvalid)
+			return fmt.Errorf("unsafe Windows path component %q: %w", component, fs.ErrInvalid)
 		}
 		for _, character := range component {
 			if character < 32 {
-				return "", fmt.Errorf("invalid Windows path character: %w", fs.ErrInvalid)
+				return fmt.Errorf("invalid Windows path character: %w", fs.ErrInvalid)
 			}
 		}
 	}
-	return path, nil
+	return nil
 }
 
 func windowsPathPointer(path string) (*uint16, error) {

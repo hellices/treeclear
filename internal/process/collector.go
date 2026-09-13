@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ func (collector Collector) Collect(ctx context.Context, worktrees []domain.Workt
 		canonical, err := canonicalDirectory(worktree.Path)
 		if err != nil {
 			err = fmt.Errorf("worktree path %q: %w", worktree.Path, err)
-			report(err)
+			report(&WorktreeError{Err: err, Paths: []string{worktree.Path}})
 			collection.ByWorktree[worktree.Path] = []domain.ProcessEvidence{unknownEvidence(err)}
 			continue
 		}
@@ -139,7 +140,11 @@ func (collector Collector) Collect(ctx context.Context, worktrees []domain.Workt
 		}
 		if evidence.State == domain.EvidenceUnknown {
 			collection.Uninspectable[info.PID] = evidence
-			report(fmt.Errorf("process %d: %s", info.PID, evidence.Error))
+			failure := fmt.Errorf("process %d: %s", info.PID, evidence.Error)
+			if len(matchedRoots) != 0 {
+				failure = &WorktreeError{Err: failure, Paths: slices.Clone(matchedRoots)}
+			}
+			report(failure)
 		}
 		for _, root := range matchedRoots {
 			collection.ByWorktree[root] = append(collection.ByWorktree[root], evidence)

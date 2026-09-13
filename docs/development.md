@@ -92,8 +92,8 @@ whole-plan revalidation, snapshot verification, or explicit apply approval.
 ## Private plan storage
 
 Plan 001 Task 7B adds `NewStore(root, now, integrityKey)`, `Store.Save`, and
-`Store.Load`. This is a storage/integrity slice only: the builder,
-`plan`/`explain` CLI, snapshots, and apply remain unimplemented. Authentication
+`Store.Load`. Task 7C integrates the builder and `plan`/`explain` CLI with this
+storage contract. Snapshots and apply remain unimplemented. Authentication
 alone does not establish that an action is safe or authorize removal.
 
 With a nil key, the first save creates a random 32-byte `integrity.key` under
@@ -139,7 +139,7 @@ letters/digits/underscores/hyphens in their nonempty suffix, and are at most
 128 bytes. Other nonempty, non-NUL inputs to `Load` are paths, including bare
 relative filenames without an extension. A valid ID takes precedence; use
 `./plan_example` or an absolute path to load a file whose name is also an ID.
-Expiry must be strictly later than the clock. The later builder
+Expiry must be strictly later than the clock. The builder
 owns populating generation time; this low-level store rejects nonzero future
 generation times but accepts zero for minimal plan construction. Missing or
 corrupt key reads fail without generating replacement state; existing corrupt
@@ -152,6 +152,62 @@ between phases but cannot interrupt synchronous OS calls. Private directories
 or a key can remain if cancellation arrives during initialization; publication
 already in progress can complete successfully. Cancellation does not roll
 back shared initialization or delete immutable files used by other callers.
+
+## Plan building and inspection
+
+Task 7C's `Builder.Build` uses explicit inventory/process interfaces, an
+injected clock, and `Request` policy settings and intended apply mode. It
+collects inventory before bounded process inspection, correlates evidence,
+then evaluates policy before fingerprinting the final action and snapshot
+requirements. Only safe candidates propose `remove`, with a required snapshot.
+Generation/expiry are recorded, policy settings are digested, and plan IDs
+combine canonical content with cryptographic randomness. No mutation API or
+adapter collection is wired into this stage.
+
+Invalid requests and parent-context cancellation return no usable plan.
+Collection failures instead return an inspectable plan plus an error, with
+diagnostics blocking potentially affected candidates. Missing or conflicting
+worktree identity and incomplete process enumeration never establish safety.
+The CLI persists a returned partial plan but exits unsuccessfully. Tests cover
+collector ordering, policy/action/fingerprint coupling, immutability, timeout
+handling, duplicate identities, and summary overflow using synthetic data.
+
+Proven-local process failures carry a direct `*process.WorktreeError` with
+affected input worktree paths. The collector's diagnostic strings preserve
+returned-error order. Builder validates this correspondence and the scope
+before restricting a warning to those candidates; it never infers scope merely
+from matching message text. Enumeration, containment, unbound uncertainty,
+inconsistent diagnostics and otherwise unscoped errors still block globally.
+
+`Store.Latest` authenticates each `.json` plan before considering its generation
+time. It skips only otherwise-valid authenticated expired plans; filename/ID
+mismatches and invalid generation windows block selection even after expiry.
+Other load errors also stop selection. Equal generation times use descending
+plan ID order. The selected plan is checked again for expiry and cancellation.
+Unrelated non-JSON files and in-flight private staging files are not plans.
+Missing state stays missing.
+
+CLI JSON output retains the canonical signed bytes, with one trailing stdout
+newline; `--output` omits that newline to match storage exactly. Export creates
+an independent private staging file under private state, then uses exclusive
+hard-link publication and removes staging. It never links the canonical plan
+itself. Existing export-parent permissions are preserved, newly created parents
+are private, and other users cannot alter the private staging entry. State and
+destination must be on the same filesystem; cross-filesystem publication fails
+without an unsafe fallback. Saved plans survive export or output failures.
+
+Explain loads authenticated state without collecting fresh evidence or parsing
+current repository policy. It prints one candidate's full recorded evidence,
+with plan-level warnings on stderr. Discovery roots and private file/state/export
+paths preserve `..` until ancestor resolution, so a symlink cannot silently
+change the requested scope or select another authenticated plan through
+premature lexical cleaning. Relative inputs use the physical working directory,
+not a logical `PWD` alias. Unresolvable traversal fails closed, and final
+file/directory symlinks remain rejected. Final CLI errors also escape control
+characters, including those inside wrapped filesystem errors.
+Temporary Git end-to-end fixtures verify that planning, export, explanation,
+and expiry rejection leave indexes, branches and registrations unchanged.
+No real-workspace smoke test is used.
 
 ## Delivery
 
