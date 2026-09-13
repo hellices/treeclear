@@ -238,6 +238,89 @@ func TestLoaderRejectsSymlinkWorktreeAndAncestor(test *testing.T) {
 	}
 }
 
+func TestLoaderEstimatesBytesWithoutGitMetadata(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	linked := repository.AddWorktree(test, "feature", "feature/one")
+	worktrees, failures := newTestLoader(repository.Root).Load(context.Background(), []string{repository.Root})
+	if len(failures) != 0 || len(worktrees) != 2 {
+		test.Fatalf("Load() = %#v, %v", worktrees, failures)
+	}
+	for _, path := range []string{repository.Root, linked} {
+		seed, err := os.Stat(filepath.Join(path, "seed.txt"))
+		if err != nil {
+			test.Fatal(err)
+		}
+		worktree := findWorktree(test, worktrees, path)
+		if worktree.EstimatedBytes != seed.Size() || !worktree.PathSafe || !worktree.GitStateKnown {
+			test.Errorf("size = %d, want only %d worktree bytes; worktree = %#v", worktree.EstimatedBytes, seed.Size(), worktree)
+		}
+	}
+}
+
+func TestEstimateBytesSkipsRootGitMetadata(test *testing.T) {
+	for _, markerName := range []string{".git", ".GIT"} {
+		for _, linked := range []bool{false, true} {
+			test.Run(fmt.Sprintf("marker=%s/linked=%v", markerName, linked), func(test *testing.T) {
+				repository := testutil.NewRepository(test)
+				root := repository.Root
+				if linked {
+					root = repository.AddWorktree(test, "feature", "feature/one")
+				}
+				marker := filepath.Join(root, ".git")
+				if markerName != ".git" {
+					if err := os.Rename(marker, filepath.Join(root, markerName)); err != nil {
+						test.Fatal(err)
+					}
+					if _, err := os.Stat(marker); errors.Is(err, fs.ErrNotExist) {
+						test.Skip("filesystem has case-sensitive directory names")
+					} else if err != nil {
+						test.Fatal(err)
+					}
+				}
+				marker = filepath.Join(root, markerName)
+				loader := Loader{ReadDir: func(path string) ([]os.DirEntry, error) {
+					if pathutil.Contains(marker, path) {
+						test.Errorf("byte estimation traversed Git metadata: %q", path)
+						return nil, fs.ErrPermission
+					}
+					return os.ReadDir(path)
+				}}
+				seed, err := os.Stat(filepath.Join(root, "seed.txt"))
+				if err != nil {
+					test.Fatal(err)
+				}
+				total, failures := loader.estimateBytes(context.Background(), root)
+				if len(failures) != 0 || total != seed.Size() {
+					test.Fatalf("estimateBytes() = %d, %v; want %d worktree bytes", total, failures, seed.Size())
+				}
+			})
+		}
+	}
+}
+
+func TestEstimateBytesCountsDistinctCaseSensitiveGitNames(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	path := filepath.Join(repository.Root, ".GIT")
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		test.Skip("filesystem has case-insensitive directory names")
+	} else if err != nil {
+		test.Fatal(err)
+	}
+	written, writeError := file.WriteString("ordinary worktree bytes")
+	if err := errors.Join(writeError, file.Close()); err != nil {
+		test.Fatal(err)
+	}
+	seed, err := os.Stat(filepath.Join(repository.Root, "seed.txt"))
+	if err != nil {
+		test.Fatal(err)
+	}
+	total, failures := (Loader{ReadDir: os.ReadDir}).estimateBytes(context.Background(), repository.Root)
+	if want := seed.Size() + int64(written); len(failures) != 0 || total != want {
+		test.Fatalf("estimateBytes() = %d, %v; want %d worktree bytes", total, failures, want)
+	}
+}
+
 func TestLoaderEstimatesBytesWithoutFollowingLinks(test *testing.T) {
 	repository := testutil.NewRepository(test)
 	linked := repository.AddWorktree(test, "feature", "feature/one")

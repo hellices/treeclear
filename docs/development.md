@@ -49,6 +49,10 @@ Scan-wide failures are retained as evidence warnings without changing the
 collector's process-enumeration completeness. Correlation preserves the
 collector's global unknown failure record, adding a fallback only when missing.
 
+Byte estimates exclude the root Git marker and its metadata tree. Marker aliases
+are matched by filesystem identity, not case spelling alone. Nested Git markers
+still make the affected worktree unknown and unsafe.
+
 ## Delivery
 
 Follow the [implementation plans](plans/README.md) in order. Each stage, or

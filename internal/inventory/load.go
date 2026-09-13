@@ -331,6 +331,17 @@ func (loader Loader) estimateBytes(ctx context.Context, root string) (int64, []e
 				failures = append(failures, pathError("estimate bytes", path, err))
 				continue
 			}
+			if directory == root && strings.EqualFold(entry.Name(), ".git") {
+				markerPath := filepath.Join(root, ".git")
+				marker, err := os.Lstat(markerPath)
+				if err != nil {
+					failures = append(failures, pathError("estimate bytes", markerPath, err))
+					continue
+				}
+				if os.SameFile(metadata, marker) {
+					continue
+				}
+			}
 			switch {
 			case metadata.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0:
 				continue
