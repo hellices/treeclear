@@ -1,0 +1,10 @@
+/.superpowers/
+/.harness/
+/bin/
+/dist/
+/treeclear
+/treeclear.exe
+*.test
+*.test.exe
+/coverage.out
+.DS_Store
