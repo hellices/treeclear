@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -194,24 +195,28 @@ func TestWritePrivateFileAllowsImmediateParentAlias(test *testing.T) {
 }
 
 func TestEnsurePrivateDirectoryConcurrentCreators(test *testing.T) {
-	path := filepath.Join(test.TempDir(), "state", "plans")
-	const creators = 16
-	start := make(chan struct{})
-	results := make(chan error, creators)
-	for range creators {
-		go func() {
-			<-start
-			results <- EnsurePrivateDirectory(path)
-		}()
+	for round := range 32 {
+		test.Run("round="+strconv.Itoa(round), func(test *testing.T) {
+			path := filepath.Join(test.TempDir(), "state", "plans")
+			const creators = 16
+			start := make(chan struct{})
+			results := make(chan error, creators)
+			for range creators {
+				go func() {
+					<-start
+					results <- EnsurePrivateDirectory(path)
+				}()
+			}
+			close(start)
+			for range creators {
+				if err := <-results; err != nil {
+					test.Errorf("concurrent EnsurePrivateDirectory: %v", err)
+				}
+			}
+			assertPrivateObject(test, filepath.Dir(path), true)
+			assertPrivateObject(test, path, true)
+		})
 	}
-	close(start)
-	for range creators {
-		if err := <-results; err != nil {
-			test.Errorf("concurrent EnsurePrivateDirectory: %v", err)
-		}
-	}
-	assertPrivateObject(test, filepath.Dir(path), true)
-	assertPrivateObject(test, path, true)
 }
 
 func TestWritePrivateFilePublishesExactBytes(test *testing.T) {

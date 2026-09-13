@@ -71,15 +71,8 @@ func resolvePrivateAncestors(path string) (string, error) {
 	if path == "" {
 		path = "."
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := resolveExistingPrivateAncestor(path)
 	if err == nil {
-		info, err := os.Stat(resolved)
-		if err != nil {
-			return "", err
-		}
-		if !info.IsDir() {
-			return "", fmt.Errorf("private path ancestor %q is not a directory: %w", path, fs.ErrInvalid)
-		}
 		return resolved, nil
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
@@ -90,7 +83,10 @@ func resolvePrivateAncestors(path string) (string, error) {
 	if name == "" || name == "." || name == ".." || trimmed == filepath.VolumeName(path) {
 		return "", err
 	}
-	if _, lookupErr := os.Lstat(trimmed); lookupErr == nil {
+	if info, lookupErr := os.Lstat(trimmed); lookupErr == nil {
+		if info.IsDir() {
+			return resolveExistingPrivateAncestor(path)
+		}
 		return "", err
 	} else if !errors.Is(lookupErr, fs.ErrNotExist) {
 		return "", lookupErr
@@ -100,4 +96,19 @@ func resolvePrivateAncestors(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(resolved, name), nil
+}
+
+func resolveExistingPrivateAncestor(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("private path ancestor %q is not a directory: %w", path, fs.ErrInvalid)
+	}
+	return resolved, nil
 }
