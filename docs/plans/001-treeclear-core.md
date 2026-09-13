@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8B raw Git snapshot reads
+- Status: In progress — Task 8C bounded administrative diagnostic reads
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,14 +12,16 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, and #7 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, and #8 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
 delivered. Task 7D's ancestor-creation race correction also passed independent
 review and native macOS/Windows CI, including its merge commit. Task 8A's pure
 snapshot-integrity foundation also passed independent review and native CI on
-both the final head and merge commit. Task 8B adds narrow raw Git reads.
+both the final head and merge commit. Task 8B's guarded raw Git reads also
+passed independent review and native CI on the final head and merge commit.
+Task 8C adds bounded, read-only administrative diagnostics.
 Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
@@ -2068,7 +2070,7 @@ isolated Git compatibility fixtures and ordinary regression/fuzz tests, not a
 new acceptance or harness framework.
 Independent review and final-head native CI are required before merge.
 
-Still required before Task 9: narrow raw Git/admin capture, coherent before/after
+Still required before Task 9: administrative reads, coherent Git/admin before/after
 revalidation, safe untracked archives with modes and symlinks, sensitive and
 oversize preflight, detached recovery refs, private fsync/atomic publication,
 receipt commitments, repository/branch/target checks and byte-for-byte restore.
@@ -2145,10 +2147,102 @@ effective stage combinations previously tested.
   the shared snapshot-supported profile and raw-boundary regressions.
 - [x] Reproduce and correct exit-one execution-error handling and misplaced
   directory-mode acceptance, preserving native quiet exits and worktree modes.
-- [ ] Repeat independent review until clean, verify the final revised head on
+- [x] Repeat independent review until clean, verify the final revised head on
   native macOS/Windows CI, then merge and verify the merge commit.
 
+Delivered in PR #8, merge commit `34c6d8a11c1b2341aa44627f03ab3831bfec6ef0`.
+Final-head native CI `34782004567` and post-merge native CI `34782409173` passed.
+Independent AI review `5192229370` passed spec and quality with no remaining
+actionable findings. The final external AI review had no concrete code findings
+but retained a general recommendation for human review; no human approval is
+claimed. The merged tree is identical to reviewed head `dd8e670`.
+
 Remaining Task 8 lifecycle work listed above stays pending; Task 9 is not ready.
+
+### Task 8C execution slice: bounded administrative diagnostic reads
+
+This slice consumes the existing `AdminEntry` schema and adds only:
+
+```go
+func ReadAdministrative(ctx context.Context, directory string) ([]AdminEntry, error)
+```
+
+The reader accepts an existing absolute administrative directory, returns
+deterministically ordered caller-owned diagnostic entries, and performs no
+Git command, filesystem mutation, permission repair or publication. Preserve
+the existing Git fingerprint serialization, manifest encoding and schema.
+Absolute root inputs retain the manifest's 32 KiB byte budget and canonical
+form; relative entry paths retain their 4,096-byte budget. Native filesystem
+path/component limits can still reject a lexically supported path. On Windows,
+canonical drive/UNC input is converted to extended spelling only for the native
+metadata open; raw extended spelling is not a new public input format.
+A separate reader avoids changing persisted plan fingerprints; implementing
+the full snapshot lifecycle here would make the safety boundary too broad.
+
+Retain exact file bytes and original permission bits, including setuid, setgid
+and sticky. Include an explicit root and nonempty regular `HEAD`, `commondir`
+and `gitdir`; an index is optional and may be empty. Directories have nil data.
+Use the existing portable path, mode and required-entry validators, 4,096-entry
+limit including root, and 16 MiB aggregate raw-byte limit. Reserve entry capacity
+when names are enumerated, not just visited; bound directory batches, pending
+names and growing files before collecting excessive content. Reject aliases,
+nonportable names, traversal and malformed single-component names before
+opening them, rather than normalizing conflicting evidence away.
+
+Anchor descendant access to opened roots/directories. Reject symlinks, Windows
+reparse records and unsupported object types or modes. Compare observed and
+opened identities before reading; check each file before and after reading and
+revalidate every observed entry and the original root path before returning.
+Capture Windows root identity through a no-follow metadata handle: path-based
+`os.Lstat` can defer file-ID lookup until after a replacement. A native Windows
+same-mode/size/time replacement test must therefore exercise pinned identity.
+Check native reparse and device attributes even if `FileMode` looks regular.
+
+Prevent Unix file/directory-to-FIFO substitution from blocking open. Plain
+`os.OpenRoot` is not sufficient on the selected toolchain; verified directory
+acquisition and nonblocking file opens, or equally strong native primitives,
+must cover this boundary. Propagate all open/stat/readdir/read/close failures
+exposed by the Go APIs, cancellation and changed observations with nil partial
+output. In Go 1.26.5 a trailing slash in `Root.OpenRoot` causes a precheck but
+does not protect its subsequent Unix open against FIFO replacement. A terminal
+dot makes the mutable directory an intermediate `O_DIRECTORY` open and opens
+the final dot relative to that acquired directory. A native Darwin atomic
+directory/FIFO exchange regression covers this late race, beyond the earlier
+before-call substitution tests. Require both successful exchanges and directory
+opens in each stress test. A separate absolute-root race regression covers the
+direct `os.OpenRoot` path: unlike `Root.OpenRoot`, it forwards its trailing slash
+unchanged to the Unix open syscall, which requires a directory atomically.
+Keep successful administrative-read integration tests limited to the supported
+reader platforms; unsupported targets retain their explicit error contract.
+Check context around filesystem operations
+and bounded reads; synchronous OS calls are not
+claimed preemptibly cancellable. Rejecting file growth can read one extra
+detection byte beyond the aggregate allowance, but cannot return partial
+output. Close every acquired handle through its Go API on all paths; errors
+hidden by the standard library cannot be surfaced. In particular, Go 1.26.5's
+Unix `os.Root.Close` discards its underlying native close return value.
+
+These object checks do not authenticate the supplied Git relationship, match a
+candidate fingerprint, prove cross-payload coherence, forbid mounts/hard links,
+or defeat same-user ABA/content changes with restored metadata. Administrative
+records remain diagnostic only and must never be replayed into live Git
+metadata. Complete capture coordination, archives, sensitivity/size policy,
+recovery refs, private publication, receipts and restore remain later work.
+
+Harness assessment: ordinary temporary filesystem fixtures, narrow per-call
+injection around real handles, and `internal/testutil` Git fixtures suffice.
+No new framework, dependency, real workspace/database/scheduler test, global
+cwd/environment/config mutation or process enumeration is needed. The existing
+native macOS/Windows matrix must exercise the final head and merge commit.
+
+- [x] Write failing exact-byte/ownership Git integration and focused unsafe-read,
+  replacement, I/O-failure, cancellation, entry/byte-limit and growth tests.
+- [x] Implement the bounded read-only collector and platform identity checks.
+- [x] Verify genuine Git index/unmerged metadata and shared original modes
+  without altering fixture bytes or permissions.
+- [x] Run full local normal/race/vet/build/format/diff checks.
+- [ ] Repeat independent review until clean, verify final-head native macOS/
+  Windows CI, merge, and verify native CI on the merge commit.
 
 ### Remaining Task 8 lifecycle
 
