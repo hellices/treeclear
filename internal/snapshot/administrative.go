@@ -8,6 +8,8 @@ import (
 	"unicode"
 )
 
+const administrativePermissionBits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+
 func validateAdministrativeEntries(entries []AdminEntry) error {
 	byPath := make(map[string]AdminEntry, len(entries))
 	identities := make(map[string]bool, len(entries))
@@ -28,11 +30,11 @@ func validateAdministrativeEntries(entries []AdminEntry) error {
 		totalBytes += len(entry.Data)
 		switch entry.Kind {
 		case "directory":
-			if entry.Mode & ^fs.ModePerm != fs.ModeDir || entry.Data != nil {
+			if entry.Mode&^administrativePermissionBits != fs.ModeDir || entry.Data != nil {
 				return fmt.Errorf("%w: invalid administrative directory mode or data", ErrManifestInvalid)
 			}
 		case "file":
-			if entry.Mode & ^fs.ModePerm != 0 || entry.Path == "." {
+			if entry.Mode&^administrativePermissionBits != 0 || entry.Path == "." {
 				return fmt.Errorf("%w: invalid administrative file mode or path", ErrManifestInvalid)
 			}
 		default:

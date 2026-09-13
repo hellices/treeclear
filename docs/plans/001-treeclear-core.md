@@ -2019,14 +2019,19 @@ record relative slash paths, file/directory kinds, original modes and raw
 diagnostic bytes, including an explicit root and nonempty `HEAD`, `commondir`
 and `gitdir` files. An index, when present, is recorded as raw file bytes.
 Administrative records are diagnostic only and must never be replayed into
-live Git metadata.
+live Git metadata. Original permission bits include setuid, setgid and sticky;
+these do not authorize using those permissions for private snapshot storage.
+In particular, shared Git repositories legitimately generate setgid
+administrative directories.
 
 Encoding normalizes time to UTC and sorts entries without mutating the caller.
 Decoding requires the exact canonical encoding and rejects unknown, duplicate,
 case-aliased, malformed UTF-8 and noncanonical JSON. Bounds are 32 MiB per encoded
 document, 4,096 administrative entries and 16 MiB aggregate administrative
 bytes. A token preflight bounds collections before typed slice/map expansion
-(32 fields per object, 4,096 entries per array, eight collection levels).
+(32 fields per object, 4,096 entries per array, eight collection levels and
+32,768 total JSON values, including containers). Base64 diagnostic byte counts
+are also bounded before typed expansion, including case-aliased data fields.
 Identifiers and printable ASCII tool versions are bounded to 128 bytes,
 branches to 1,024 bytes, absolute identity paths to 32 KiB and administrative
 relative paths to 4,096 bytes. These serialization bounds do not replace the
@@ -2038,6 +2043,9 @@ access. It cannot prove repository identity, existence or symlink resolution.
 Administrative paths reject traversal, nonportable names, duplicate and
 case-folded conflicting identities, missing parents and incompatible modes.
 Physical identity and coherent Git/admin capture remain later responsibilities.
+Branches are short branch names, including a legitimate `@` branch. Future
+Git consumers must use its qualified `refs/heads/@` identity, not confuse the
+short name with revision shorthand for the current HEAD.
 
 The full evidence digest covers every stored evidence field, including
 planning-only agents, observation times and complete diagnostics. It reuses
@@ -2054,8 +2062,9 @@ Missing policy, adapter-lock, candidate or evidence digests fail closed. Do not
 invent adapter provenance: current core-only plans remain inspection-only.
 
 The existing ordinary Go tests, isolated `internal/testutil` fixtures and native
-macOS/Windows CI suffice. This pure slice uses in-memory synthetic values and
-ordinary regression/fuzz tests, not a new acceptance or harness framework.
+macOS/Windows CI suffice. This pure slice uses in-memory synthetic values,
+isolated Git compatibility fixtures and ordinary regression/fuzz tests, not a
+new acceptance or harness framework.
 Independent review and final-head native CI are required before merge.
 
 Still required before Task 9: narrow raw Git/admin capture, coherent before/after

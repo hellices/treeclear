@@ -24,9 +24,9 @@ func TestManifestRejectsConflictingAdministrativeTrees(test *testing.T) {
 		{"unknown kind", func(value *Manifest) { value.AdministrativeEntries[1].Kind = "symlink" }},
 		{"file directory mode", func(value *Manifest) { value.AdministrativeEntries[1].Mode |= fs.ModeDir }},
 		{"file symlink mode", func(value *Manifest) { value.AdministrativeEntries[1].Mode |= fs.ModeSymlink }},
-		{"file setuid mode", func(value *Manifest) { value.AdministrativeEntries[1].Mode |= fs.ModeSetuid }},
+		{"file nonpermission mode", func(value *Manifest) { value.AdministrativeEntries[1].Mode |= fs.ModeAppend }},
 		{"directory file mode", func(value *Manifest) { value.AdministrativeEntries[0].Mode = 0o700 }},
-		{"directory special mode", func(value *Manifest) { value.AdministrativeEntries[0].Mode |= fs.ModeSticky }},
+		{"directory nonpermission mode", func(value *Manifest) { value.AdministrativeEntries[0].Mode |= fs.ModeExclusive }},
 		{"directory data", func(value *Manifest) { value.AdministrativeEntries[0].Data = []byte{0} }},
 		{"directory nonnil data", func(value *Manifest) { value.AdministrativeEntries[0].Data = []byte{} }},
 		{"duplicate path", func(value *Manifest) {
@@ -160,6 +160,25 @@ func TestManifestPreservesPortableNamesAndOriginalModes(test *testing.T) {
 	for _, entry := range loaded.AdministrativeEntries {
 		if entry.Path == "empty-file" && entry.Data != nil || entry.Path == "empty-buffer" && entry.Data == nil {
 			test.Errorf("diagnostic data representation changed for %q", entry.Path)
+		}
+	}
+}
+
+func TestManifestPreservesSpecialPermissionBits(test *testing.T) {
+	for _, special := range []fs.FileMode{fs.ModeSetuid, fs.ModeSetgid, fs.ModeSticky, fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky} {
+		for _, index := range []int{0, 1} {
+			test.Run(fmt.Sprintf("entry-%d-bits-%o", index, uint32(special)), func(test *testing.T) {
+				value := manifestFixture()
+				value.AdministrativeEntries[index].Mode |= special
+				contents, err := EncodeManifest(value)
+				if err != nil {
+					test.Fatal(err)
+				}
+				loaded, err := DecodeManifest(contents)
+				if err != nil || loaded.AdministrativeEntries[index].Mode != value.AdministrativeEntries[index].Mode {
+					test.Fatalf("diagnostic permissions changed: %v", err)
+				}
+			})
 		}
 	}
 }

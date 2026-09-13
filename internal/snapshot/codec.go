@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,13 @@ import (
 	"strings"
 	"unicode/utf8"
 )
+
+const maximumJSONValues = maximumAdministrativeEntries * 8
+
+type manifestJSONBudget struct {
+	remainingValues     int
+	administrativeBytes int
+}
 
 func EncodeManifest(value Manifest) ([]byte, error) {
 	if err := ValidateManifest(value); err != nil {
@@ -59,7 +67,8 @@ func checkManifestJSON(contents []byte) error {
 	if err != nil || first != json.Delim('{') {
 		return fmt.Errorf("%w: expected a JSON object", ErrManifestInvalid)
 	}
-	if err := checkJSONValue(decoder, first, 1); err != nil {
+	budget := manifestJSONBudget{remainingValues: maximumJSONValues}
+	if err := checkJSONValue(decoder, first, 1, &budget); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
@@ -68,7 +77,11 @@ func checkManifestJSON(contents []byte) error {
 	return nil
 }
 
-func checkJSONValue(decoder *json.Decoder, token json.Token, depth int) error {
+func checkJSONValue(decoder *json.Decoder, token json.Token, depth int, budget *manifestJSONBudget) error {
+	if budget.remainingValues == 0 {
+		return manifestLimit("aggregate JSON values")
+	}
+	budget.remainingValues--
 	opening, collection := token.(json.Delim)
 	if !collection {
 		return nil
@@ -92,17 +105,25 @@ func checkJSONValue(decoder *json.Decoder, token json.Token, depth int) error {
 			return manifestLimit("JSON collection entries")
 		}
 		entries++
+		dataField := false
 		if opening == '{' {
 			key, err := decoder.Token()
-			if _, text := key.(string); err != nil || !text {
+			name, text := key.(string)
+			if err != nil || !text {
 				return fmt.Errorf("%w: invalid JSON object key", ErrManifestInvalid)
 			}
+			dataField = strings.EqualFold(name, "data")
 		}
 		value, err := decoder.Token()
 		if err != nil {
 			return fmt.Errorf("%w: invalid JSON value: %w", ErrManifestInvalid, err)
 		}
-		if err := checkJSONValue(decoder, value, depth+1); err != nil {
+		if dataField {
+			if err := checkAdministrativeDataSize(value, budget); err != nil {
+				return err
+			}
+		}
+		if err := checkJSONValue(decoder, value, depth+1, budget); err != nil {
 			return err
 		}
 	}
@@ -110,5 +131,26 @@ func checkJSONValue(decoder *json.Decoder, token json.Token, depth int) error {
 	if err != nil || last != closing {
 		return fmt.Errorf("%w: unterminated JSON collection", ErrManifestInvalid)
 	}
+	return nil
+}
+
+func checkAdministrativeDataSize(value json.Token, budget *manifestJSONBudget) error {
+	if value == nil {
+		return nil
+	}
+	encoded, text := value.(string)
+	if !text || len(encoded)%4 != 0 || strings.ContainsAny(encoded, "\r\n") {
+		return fmt.Errorf("%w: administrative data must use canonical base64 or null", ErrManifestInvalid)
+	}
+	decodedBytes := base64.StdEncoding.DecodedLen(len(encoded))
+	if strings.HasSuffix(encoded, "==") {
+		decodedBytes -= 2
+	} else if strings.HasSuffix(encoded, "=") {
+		decodedBytes--
+	}
+	if decodedBytes > maximumAdministrativeBytes-budget.administrativeBytes {
+		return manifestLimit("aggregate administrative bytes before typed decoding")
+	}
+	budget.administrativeBytes += decodedBytes
 	return nil
 }
