@@ -20,12 +20,18 @@ func TestResolveDependenciesAnchorsRelativeConfigurationPaths(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	for path, name := range map[string]string{
-		resolved.UserConfigPath: "user.toml", resolved.RepositoryConfigPath: "repository.toml", resolved.DataDirectory: "state",
+	for _, setting := range []struct {
+		name, path, filename string
+	}{
+		{"user config", resolved.UserConfigPath, "user.toml"},
+		{"repository config", resolved.RepositoryConfigPath, "repository.toml"},
+		{"data directory", resolved.DataDirectory, "state"},
 	} {
-		if path != filepath.Join(root, name) {
-			test.Fatalf("configuration path = %q; want %q", path, filepath.Join(root, name))
-		}
+		test.Run(setting.name, func(test *testing.T) {
+			if setting.path != filepath.Join(root, setting.filename) {
+				test.Fatalf("configuration path = %q; want %q", setting.path, filepath.Join(root, setting.filename))
+			}
+		})
 	}
 }
 
