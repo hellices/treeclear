@@ -15,6 +15,13 @@ gofmt -l .
 commands directly in PowerShell. CI runs both native macOS and Windows tests.
 For a quick iteration, use `go test -count=1 ./internal/<package>`.
 
+The first supported release targets macOS. Windows support is deferred to
+[follow-up #15](https://github.com/hellices/treeclear/issues/15); the existing
+Windows implementation and native CI remain compatibility coverage, not a
+production-support claim. Keep both current CI jobs and their required checks.
+Deferral does not resolve outstanding reviews or waive shared/macOS safety
+findings. Existing dual-platform execution records remain historical evidence.
+
 `make build` writes the CLI into `bin/`; `make build VERSION=v0.0.0-test`
 sets the version string. Without Make, use `go build -o bin/ ./cmd/treeclear`.
 
@@ -116,7 +123,7 @@ outside the privacy boundary; HMAC is authentication, not encryption.
 On macOS, use local APFS/HFS with ownership enabled and without nonempty
 extended ACLs. On Windows, the volume must support persistent ACLs. Both
 require hard-link publication support. Linux compilation is supplementary,
-not a substitute for the supported native macOS/Windows jobs. An interrupted
+not a substitute for the required native macOS/Windows jobs. An interrupted
 process may leave private staging files; automatic recovery is not yet added.
 
 The store signs the complete canonical version-1 JSON with HMAC-SHA-256,

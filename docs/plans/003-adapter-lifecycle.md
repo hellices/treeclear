@@ -15,6 +15,9 @@
 
 ## Global Constraints
 
+- Deliver lifecycle acceptance for the macOS-first release. Windows-specific
+  qualification is deferred to [#15](https://github.com/hellices/treeclear/issues/15);
+  preserve portable safety contracts, Windows regression tests, and native CI.
 - Cleanup, plan apply, and adapter update never run in the same process or hold the adapter state lock simultaneously.
 - Apply never performs network access and uses exactly the adapter lock recorded by its plan.
 - First-party external bundles require a valid Ed25519 signature, exact SHA-256 digest, size match, compatible SPI, and non-expired metadata.

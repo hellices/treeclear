@@ -11,11 +11,17 @@ documentation, e2e, platform, and release requirements; they do not replace it.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver Treeclear as a documented, agent-friendly, scheduled, tested, signed macOS and Windows product with reproducible release artifacts and SBOMs.
+**Goal:** Deliver Treeclear as a documented, agent-friendly, scheduled, tested, signed macOS product with reproducible release artifacts and SBOMs. Windows product qualification and publication are deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
 
-**Architecture:** Repository Markdown remains canonical, `AGENTS.md` provides tool-neutral contributor instructions, and one standard Agent Skill is packaged through thin host wrappers. A scheduler service generates plan-only jobs for launchd and Windows Task Scheduler. Native CI validates both operating systems, while release jobs sign native binaries, generate checksums and SBOMs, and publish immutable GitHub Release assets.
+**Architecture:** Repository Markdown remains canonical, `AGENTS.md` provides tool-neutral contributor instructions, and one standard Agent Skill is packaged through thin host wrappers. A scheduler service generates plan-only launchd jobs. Existing native macOS/Windows CI remains in place, while first-release jobs sign macOS binaries, generate checksums and SBOMs, and publish immutable GitHub Release assets. Windows Task Scheduler and release jobs belong to #15.
 
 **Tech Stack:** Existing Go stack, Agent Skills open standard, launchd property lists, Windows `schtasks.exe`, GitHub Actions, actions/checkout 7.0.1, setup-go 7.0.0, upload-artifact 7.0.1, download-artifact 8.0.1, Azure Artifact Signing Action 2.0.0, Anchore SBOM Action 0.24.2, Cosign Installer 4.1.2, Syft 1.51.1.
+
+Windows-only tools in this stack are retained as follow-up design references,
+not first-release dependencies. Task 5 and Windows-only portions of Tasks 6,
+8, and 9 are deferred to #15. They are not marked complete and do not block
+the macOS product milestone. Existing required CI and shared-code review
+findings are not waived.
 
 ## Global Constraints
 
@@ -28,7 +34,8 @@ documentation, e2e, platform, and release requirements; they do not replace it.
 - Safe-only scheduled apply requires explicit opt-in.
 - Adapter updates use a separate opt-in schedule and never run in a cleanup apply process.
 - Scheduling uses no resident daemon.
-- Release artifacts target macOS amd64/arm64 and Windows amd64/arm64.
+- First-release artifacts target macOS amd64/arm64, with native runtime
+  acceptance for each advertised architecture. Windows artifacts are deferred.
 - Release binaries are signed; releases include SHA-256 checksums and SPDX JSON SBOMs.
 - GitHub Actions are pinned to full commit SHAs.
 - Treeclear remains telemetry-free.
@@ -58,14 +65,14 @@ documentation, e2e, platform, and release requirements; they do not replace it.
 | `internal/schedule/service.go` | Scheduler-neutral plan/report contract |
 | `internal/schedule/report.go` | Private scheduled report persistence |
 | `internal/schedule/launchd_darwin.go` | launchd installation |
-| `internal/schedule/schtasks_windows.go` | Windows Task Scheduler installation |
+| `internal/schedule/schtasks_windows.go` | Deferred Windows Task Scheduler installation (#15) |
 | `internal/schedule/unsupported.go` | Explicit unsupported-platform error |
 | `internal/cli/integration.go` | Skill install/status/remove commands |
 | `internal/cli/schedule.go` | Schedule install/status/remove commands |
 | `.github/workflows/ci.yml` | Native tests and cross-build verification |
 | `.github/workflows/release.yml` | Native signing and release publication |
 | `scripts/package.sh` | Deterministic macOS packaging |
-| `scripts/package.ps1` | Deterministic Windows packaging |
+| `scripts/package.ps1` | Deferred deterministic Windows packaging (#15) |
 | `docs/release.md` | Signing variables and release runbook |
 | `tests/e2e/schedule_test.go` | Schedule lifecycle tests |
 | `tests/e2e/skill_test.go` | Skill policy tests |
@@ -573,7 +580,12 @@ git add internal/schedule
 git commit -m "feat: install launchd cleanup plans"
 ```
 
-## Task 5: Implement Windows Task Scheduler installation
+## Task 5: Implement Windows Task Scheduler installation (deferred to #15)
+
+Retain these steps for the Windows follow-up. This task is not a dependency
+of the macOS implementation of Task 6, and its unchecked steps do not count
+as completed first-release work. Cross-build checks here remain supplementary
+to the native Windows runtime acceptance required by #15.
 
 **Files:**
 - Create: `internal/schedule/schtasks_windows.go`
@@ -660,7 +672,9 @@ git commit -m "feat: install Windows cleanup plans"
 
 **Interfaces:**
 - Produces: `treeclear schedule install|status|remove|run`
-- Preserves plan-only defaults on both platforms.
+- Preserves plan-only defaults on macOS; Windows integration is deferred.
+- Rejects unsupported-platform scheduling without installing, changing, or
+  removing jobs. Test the explicit refusal before implementing the commands.
 
 - [ ] **Step 1: Write command and e2e tests**
 
@@ -682,8 +696,10 @@ Assert default install is plan-only, adapter update cannot be combined with
 cleanup install or `--apply-safe`, unsafe local adapter trust rejects
 `--apply-safe`, and reinstall is idempotent.
 
-E2E tests use injected fake launchctl/schtasks runners; native smoke jobs in CI
-exercise actual status commands without leaving a task installed.
+First-release E2E tests use injected fake launchctl runners; native macOS
+smoke jobs exercise test-owned status commands without leaving a job installed.
+Windows schtasks integration tests remain with deferred Task 5. Existing
+Windows CI instead retains compatibility and unsupported-platform controls.
 
 - [ ] **Step 2: Run tests and verify they fail**
 
@@ -754,6 +770,11 @@ git commit -m "feat: manage scheduled cleanup reports"
 ```
 
 ## Task 7: Add native macOS and Windows continuous integration
+
+Keep both existing native jobs and required checks. macOS product acceptance
+and Windows compatibility coverage have different support claims; Windows-only
+product acceptance is deferred to #15, not reported as passing by this task.
+This scope change does not change repository protections or disable a check.
 
 **Files:**
 - Create: `.github/workflows/ci.yml`
@@ -846,14 +867,15 @@ git commit -m "ci: test Treeclear on macOS and Windows"
 **Files:**
 - Create: `.github/workflows/release.yml`
 - Create: `scripts/package.sh`
-- Create: `scripts/package.ps1`
+- Deferred to #15: `scripts/package.ps1`
 - Create: `docs/release.md`
 - Create: `internal/ci/release_test.go`
 - Modify: `.gitignore`
 - Modify: `README.md`
 
 **Interfaces:**
-- Publishes signed macOS amd64/arm64 and Windows amd64/arm64 archives.
+- Publishes signed macOS amd64/arm64 archives after native acceptance.
+- Does not publish Windows archives or advertise Windows production support.
 - Publishes `SHA256SUMS`, Cosign bundle, and SPDX JSON SBOM per archive.
 - Publishes the signed adapter index from Plan 003.
 
@@ -864,7 +886,9 @@ Assert `.github/workflows/release.yml`:
 - triggers only on `v*` tags and manual dispatch;
 - grants `contents: write`, `id-token: write`, and no broader permissions;
 - uses protected `release` environment;
-- builds on native macOS and Windows runners;
+- builds first-release artifacts on macOS runners with only `GOOS=darwin`;
+- requires native runtime acceptance for each advertised macOS architecture;
+- rejects Windows targets and unexpected archives in first-release publication;
 - signs before packaging;
 - generates SBOMs and checksums after signing;
 - signs checksums with Cosign;
@@ -890,13 +914,11 @@ actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
 actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
 actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
 anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
 sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 ```
 
-Release build jobs use explicit architecture matrices:
+First-release build jobs use an explicit macOS architecture matrix:
 
 ```yaml
 jobs:
@@ -909,19 +931,14 @@ jobs:
       GOOS: darwin
       GOARCH: ${{ matrix.goarch }}
 
-  windows:
-    strategy:
-      matrix:
-        goarch: [amd64, arm64]
-    runs-on: windows-2025
-    env:
-      GOOS: windows
-      GOARCH: ${{ matrix.goarch }}
 ```
 
-Each matrix entry builds, signs, packages, and uploads exactly one native
+Each matrix entry builds, signs, packages, and uploads exactly one macOS
 artifact named `treeclear_<version>_<os>_<arch>`. The final release job refuses
-publication unless all four expected archives are present.
+publication unless both expected macOS archives are present and there are no
+unsupported-platform archives. This build matrix is not proof of native
+execution on both architectures: record native runtime acceptance separately
+before publication. Do not claim an unvalidated architecture is supported.
 
 macOS secrets:
 
@@ -933,6 +950,28 @@ APPLE_NOTARY_KEY_ID
 APPLE_NOTARY_ISSUER_ID
 APPLE_NOTARY_PRIVATE_KEY
 APPLE_TEAM_ID
+```
+
+#### Deferred Windows packaging and signing (#15)
+
+Do not add these jobs, actions, or credentials to the first-release workflow.
+They are retained for the independently qualified Windows follow-up:
+
+```yaml
+azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+```
+
+```yaml
+jobs:
+  windows:
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    runs-on: windows-2025
+    env:
+      GOOS: windows
+      GOARCH: ${{ matrix.goarch }}
 ```
 
 Windows uses GitHub OIDC plus:
@@ -961,6 +1000,13 @@ AZURE_ARTIFACT_SIGNING_ACCOUNT
 AZURE_ARTIFACT_SIGNING_PROFILE
 ```
 
+Windows signs `.exe` files with Azure Artifact Signing using SHA-256 and the
+Microsoft RFC 3161 timestamp service, then packages with `Compress-Archive`.
+The Windows follow-up must verify authorized signing access and native runtime
+acceptance for each published architecture; neither is assumed available.
+
+#### First-release adapter metadata and publication
+
 The signed adapter index uses the Plan 003 private key from the protected
 secret `TREECLEAR_ADAPTER_SIGNING_KEY_PEM`. The workflow writes it to the
 runner's temporary directory with user-only permissions, signs the canonical
@@ -988,9 +1034,6 @@ go build -trimpath -buildvcs=true -ldflags "-s -w -X github.com/hellices/treecle
 
 macOS signs with hardened runtime and timestamp, packages each architecture
 with `ditto`, and submits the zip with `xcrun notarytool --wait`.
-
-Windows signs `.exe` files with Azure Artifact Signing using SHA-256 and the
-Microsoft RFC 3161 timestamp service, then packages with `Compress-Archive`.
 
 After signed artifacts are downloaded, generate SPDX JSON SBOMs with Syft,
 write sorted `SHA256SUMS`, sign it keylessly with Cosign, and publish all files
@@ -1038,8 +1081,12 @@ git commit -m "ci: publish signed Treeclear releases"
 The matrix has one row for each architecture completion criterion and columns:
 
 ```text
-Criterion | Automated test | macOS evidence | Windows evidence | Status
+Criterion | Automated test | macOS evidence | Windows follow-up (#15) | Status
 ```
+
+Windows entries are explicitly deferred, not passed or used as first-release
+acceptance. The macOS columns must contain actual native evidence, including
+unsupported-platform mutation refusal and each published architecture.
 
 It includes:
 
@@ -1049,7 +1096,7 @@ It includes:
 - safe stale removal;
 - byte-verified restore;
 - launchd lifecycle;
-- Task Scheduler lifecycle;
+- Task Scheduler lifecycle (deferred to #15);
 - adapter patch without core rebuild;
 - corrupt adapter rollback;
 - custom adapter validation and pinning;
@@ -1066,8 +1113,6 @@ go test ./...
 go test -race ./...
 go test ./tests/e2e -v
 go build -trimpath ./cmd/treeclear
-GOOS=windows GOARCH=amd64 go build -trimpath ./cmd/treeclear
-rm -f treeclear.exe
 ./scripts/verify-docs.sh
 ./scripts/package.sh snapshot
 git diff --check
@@ -1114,7 +1159,9 @@ git commit -m "docs: record Treeclear v1 acceptance"
 
 ## Plan 4 Completion Gate
 
-Run on both macOS and Windows CI:
+Keep the existing native macOS and Windows CI checks passing. Windows results
+are compatibility evidence; macOS product acceptance and supported mutation
+E2E results must come from native macOS execution. Run the applicable suite:
 
 ```text
 go test ./...
@@ -1128,7 +1175,6 @@ Run from a protected release environment:
 ```text
 tag v0.1.0
 verify signed macOS archives
-verify signed Windows archives
 verify SHA256SUMS and Cosign bundle
 verify SPDX JSON SBOMs
 verify signed adapters-index.json
@@ -1138,9 +1184,11 @@ Expected:
 
 - canonical documentation is tool-neutral and committed under standard paths;
 - the Agent Skill installs for all five supported hosts;
-- launchd and Task Scheduler default to weekly plan-only operation;
+- launchd defaults to weekly plan-only operation; Task Scheduler remains
+  deferred to #15;
 - update and cleanup schedules remain separate;
 - all actions are SHA-pinned;
 - release binaries are signed;
+- only qualified macOS artifacts are published; no Windows release claim is made;
 - checksums, Cosign evidence, SBOMs, and adapter metadata are published;
 - the repository and release satisfy every accepted MVP criterion.

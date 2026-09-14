@@ -37,7 +37,7 @@ Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
 
-**Goal:** Build a working macOS and Windows Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, safely removes approved worktrees, and restores them from verified local snapshots.
+**Goal:** Build a working macOS Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, safely removes approved worktrees, and restores them from verified local snapshots. Windows product qualification is deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
 
 **Architecture:** A Go CLI delegates all operating-system and Git reads to narrow collectors, converts them into immutable domain values, and evaluates a pure fail-closed policy. Apply reloads the exact plan, re-collects every precondition, snapshots every pending target, and only then performs serial `git worktree remove` operations with a durable journal.
 
@@ -47,7 +47,12 @@ exposed.
 
 - Module path: `github.com/hellices/treeclear`.
 - License: Apache-2.0 using the canonical Apache Software Foundation license text.
-- Supported MVP operating systems: macOS and Windows; keep platform interfaces open for Linux.
+- Supported MVP operating system: macOS. Preserve Windows code and interfaces
+  for #15 and keep platform boundaries open for Linux.
+- Retain the existing native macOS/Windows CI checks and historical evidence;
+  Windows-only follow-up work is not macOS product acceptance.
+- Before mutation commands are exposed, refuse unsupported operating systems
+  explicitly without cleanup, restore, or trash-prune side effects.
 - Default inactivity threshold: exactly 7 days.
 - Default plan expiry: exactly 15 minutes.
 - Running `treeclear` without arguments is read-only.
@@ -3075,6 +3080,11 @@ Add tests for expired plan, non-safe action, changed process creation time,
 changed index hash, plan action tampering, removal failure after one success,
 and idempotent resume.
 
+Add an unsupported-platform control that returns an explicit error before
+snapshot creation, journal mutation, or Git removal. Use an injected platform
+boundary and owned fixtures; preserving experimental Windows collectors does
+not authorize Windows apply before #15 is complete.
+
 - [ ] **Step 2: Run tests and verify they fail**
 
 Run:
@@ -3213,6 +3223,8 @@ git commit -m "feat: apply plans with full revalidation"
 - Produces: `trash.Store.List(ctx context.Context) ([]snapshot.Manifest, error)`
 - Produces: `trash.Store.Prune(ctx context.Context, olderThan time.Duration, now time.Time) ([]string, error)`
 - Produces commands: `restore`, `trash list`, and `trash prune`
+- Refuses restore and trash-prune mutation on unsupported operating systems;
+  test this boundary before implementing either command.
 
 - [ ] **Step 1: Write explicit-prune and restore CLI tests**
 

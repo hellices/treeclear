@@ -16,6 +16,26 @@ Each plan must leave the repository buildable and tested. Plans are execution
 records, while `docs/architecture/` and `docs/specs/` remain the durable source
 of product and protocol behavior.
 
+## First-release platform scope
+
+Execute Plans 001-004 for the macOS-first supported release. Windows product
+qualification is deferred to
+[follow-up #15](https://github.com/hellices/treeclear/issues/15), including its
+native filesystem review, runtime acceptance, Task Scheduler integration, and
+signed Windows artifacts. Linux remains outside the first release.
+
+Preserve existing Windows code, fixtures, native CI, and completed execution
+records. Future Windows-only steps remain explicitly deferred, not completed
+or silently skipped. Shared safety behavior and macOS acceptance are not
+deferred; the current required checks and independent-review workflow stay in
+force. In particular, this scope amendment neither merges PR #14 nor resolves
+its two outstanding review threads.
+
+Before exposing mutation commands, Plan 001 Tasks 9-10 must test and enforce
+unsupported-platform refusal for apply, restore, and trash prune; Plan 004
+Task 6 owns the same boundary for scheduling. These guards are pending
+implementation, not functionality provided by this documentation amendment.
+
 ## Cross-plan CLI ownership
 
 | Command or flag | Owning plan |
