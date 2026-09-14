@@ -2729,6 +2729,14 @@ bytes during cleanup. Windows explicitly skips this mode-based denial fixture;
 deterministic runner diagnostics remain covered on all supported platforms.
 No native Windows ACL-denial or Linux execution is claimed by this fixture.
 
+The second task review of `be983eb` closed the runtime finding but identified
+a Minor diagnostic-bound test-oracle gap. Exact error-byte comparisons now cover
+4095, 4096, 4097 and 4101 diagnostic bytes. A temporary ordinary Go `-overlay`
+probe with an intentionally wrong 4100-byte cap passed the old loose assertion
+and failed the strengthened 4097/4101 cases; the real unchanged production code
+passed all four boundaries and the native/runner diagnostic regressions. This
+is test-oracle mutation evidence, not a newly discovered production cap defect.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

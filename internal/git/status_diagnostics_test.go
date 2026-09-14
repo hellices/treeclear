@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -56,19 +57,24 @@ func TestClientStatusRejectsSuccessfulDiagnostics(test *testing.T) {
 }
 
 func TestClientStatusBoundsSuccessfulDiagnostics(test *testing.T) {
-	directory := test.TempDir()
-	diagnostic := strings.Repeat("d", 4096) + "excluded diagnostic suffix"
-	client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
-		result := statusSnapshotFixtureResult(test, request, directory, []byte("? visible.txt\x00"))
-		if request.Args[0] == "status" {
-			result.Stderr = []byte(diagnostic)
-		}
-		return result, nil
-	}))
-	actual, err := client.StatusSnapshot(test.Context(), directory)
-	assertStatusSnapshotError(test, actual, err)
-	if !strings.Contains(err.Error(), diagnostic[:4096]) || strings.Contains(err.Error(), "excluded diagnostic suffix") || len(err.Error()) > 4352 {
-		test.Fatalf("status diagnostic was not retained within its bound: error length %d", len(err.Error()))
+	for _, diagnosticBytes := range []int{4095, 4096, 4097, 4101} {
+		test.Run(strconv.Itoa(diagnosticBytes), func(test *testing.T) {
+			directory := test.TempDir()
+			diagnostic := strings.Repeat("d", diagnosticBytes-1) + "!"
+			client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+				result := statusSnapshotFixtureResult(test, request, directory, []byte("? visible.txt\x00"))
+				if request.Args[0] == "status" {
+					result.Stderr = []byte(diagnostic)
+				}
+				return result, nil
+			}))
+			actual, err := client.StatusSnapshot(test.Context(), directory)
+			assertStatusSnapshotError(test, actual, err)
+			wantError := "git status reported diagnostics: " + diagnostic[:min(len(diagnostic), 4096)]
+			if err.Error() != wantError {
+				test.Fatalf("status diagnostic differs from its exact bound: error length %d, want %d", len(err.Error()), len(wantError))
+			}
+		})
 	}
 }
 
