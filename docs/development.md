@@ -25,6 +25,11 @@ findings. Existing dual-platform execution records remain historical evidence.
 `make build` writes the CLI into `bin/`; `make build VERSION=v0.0.0-test`
 sets the version string. Without Make, use `go build -o bin/ ./cmd/treeclear`.
 
+`make install` uses standard `go install` with the same version setting, only
+for the Go toolchain's native macOS target. Use an explicit absolute `GOBIN`
+for a predictable destination; see [source-preview installation](installation.md).
+It does not package, sign, publish, or qualify a production release.
+
 ## Test isolation
 
 `internal/testutil` provides real temporary Git repositories, a controllable
@@ -40,6 +45,17 @@ process sources. Binary help/version tests run without Git on the child PATH.
 Native process smoke tests inspect only the current test process. A test
 requiring distinct case-sensitive names reports a skip on filesystems that
 cannot create them; cross-compilation does not replace native Windows tests.
+
+`go test -count=1 ./tests/e2e -run TestMakeInstall -v` exercises the real Make
+target on macOS, using temporary homes, Go paths, and install destinations.
+It covers default/explicit Go destinations, spaces and Unicode, native build
+metadata, version overrides, upgrades, cross-target refusal, invalid
+destinations, and compiler failures that retain the previous binary. Runtime
+smoke commands run in an empty temporary home without Git or Go on PATH and
+check that no configuration/state is created. Only build/module caches are
+reused; helpers never change the parent process's cwd, environment, or Git
+configuration. These Make tests skip on other hosts; all existing native
+Windows tests and required CI checks remain unchanged.
 
 ## Evidence boundaries
 

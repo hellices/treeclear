@@ -23,6 +23,7 @@ plugins belong in their standard configuration directories, such as
 
 ## Current documents
 
+- [macOS Source-Preview Installation](installation.md)
 - [Treeclear Architecture](architecture/2026-09-12-treeclear.md)
 - [Implementation Plans](plans/README.md)
 - [Minimal Development Checks](design/development-harness.md)

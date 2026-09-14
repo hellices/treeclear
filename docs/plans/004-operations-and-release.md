@@ -1,6 +1,6 @@
 # Treeclear Operations and Release Implementation Plan
 
-- Status: Planned
+- Status: Planned — source-install preview implemented as a separate early slice
 - Sequence: 004 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [003 Treeclear Adapter Lifecycle](003-adapter-lifecycle.md)
@@ -863,6 +863,50 @@ git commit -m "ci: test Treeclear on macOS and Windows"
 ```
 
 ## Task 8: Build, sign, attest, and publish release artifacts
+
+### Early slice: native source installation
+
+This independently reviewable slice is brought forward at the user's request
+to make the existing macOS core preview installable. Its base is reviewed
+`main`, not PR #14. The rest of this plan and Plans 001-003 are not completed
+by this slice; existing review blocks remain in force.
+
+**Design:** Add `make install` as a thin wrapper around native `go install`,
+using the existing `VERSION` linker setting. Keep Go's standard `GOBIN` and
+`GOPATH/bin` destination rules rather than adding a custom installer or prefix
+framework. Refuse non-macOS hosts and cross-target installations before invoking
+`go install`. The existing `make build` and Windows CI remain unchanged.
+Source installation is chosen over unsigned downloadable archives or a
+Homebrew formula: both distribution options need a separately accepted release
+and must not imply that the unfinished product is production-ready.
+
+**Files:** `Makefile`, `tests/e2e/install_test.go`, `README.md`,
+`docs/installation.md`, `docs/development.md`, `docs/README.md`, and these plan
+records. No CLI, Git, snapshot, workflow, dependency, or protection change.
+
+**Acceptance:** The installed executable reports the requested version and
+shows the existing preview commands. Apply, restore, trash, and scheduling
+remain unavailable. Installation and upgrade tests use only temporary homes,
+Go paths, and binary destinations; help/version run without Git on PATH and
+must not create configuration or state. Cross-target and invalid-destination
+failures must not replace an existing installation. Tests run inside the
+ordinary Go e2e suite; Windows retains its existing native compatibility tests.
+No real home installation or shell-profile edit is performed by verification.
+
+- [x] Add native installation, upgrade, command-surface, and failure tests.
+- [x] Run `go test -count=1 ./tests/e2e -run TestMakeInstall -v`; observe
+  failure because the Make target does not exist.
+- [x] Add the native-only Make target using
+  `go install -trimpath -ldflags="-X github.com/hellices/treeclear/internal/version.Value=$(VERSION)" ./cmd/treeclear`.
+- [x] Re-run focused tests; document install, PATH, upgrade, removal, and the
+  distinction between source preview and signed production distribution.
+
+The PR must record uncached normal/race tests, vet, build, formatting, and
+whitespace results, independent review of this slice, and passing native macOS
+and Windows CI before an authorized merge. Installation-test failures must not
+be reclassified as completion of the signed-release task below.
+
+### Signed distribution (retains the original dependencies)
 
 **Files:**
 - Create: `.github/workflows/release.yml`

@@ -13,6 +13,22 @@ Existing Windows code and native CI are retained as compatibility evidence,
 not a production-support claim. Linux is also outside the first release.
 This scope decision does not make the current preview production-ready.
 
+## Install the macOS source preview
+
+From a reviewed checkout on macOS with Go 1.26.5, Git 2.36 or newer, and Make:
+
+```sh
+GOBIN="$HOME/.local/bin" make install VERSION="preview-$(git rev-parse --short HEAD)"
+"$HOME/.local/bin/treeclear" version
+"$HOME/.local/bin/treeclear" --help
+```
+
+This builds the current checkout for the Go toolchain's native macOS target.
+It does not install a service, change your shell profile, or enable cleanup.
+It is a local source build, **not a signed/notarized production distribution**.
+See [installation, PATH, upgrade, and removal instructions](docs/installation.md)
+for details. Installation tests use temporary destinations, not your home.
+
 ## Try the CLI
 
 Install Go 1.26.5 and Git 2.36 or newer:
