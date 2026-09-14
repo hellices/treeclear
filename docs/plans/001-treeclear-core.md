@@ -2543,7 +2543,7 @@ same pre/post-open, completed-read and later-file boundaries, mandatory actual
 identity change, metadata equivalence, nil-result and handle-close assertions.
 Unix still exercises the original nested-root layout. No case is skipped and
 no production guard or existing helper is changed. Native verification of this
-fixture correction is pending.
+fixture correction was pending at that implementation checkpoint.
 
 Corrected head `39292b3` passed native macOS/Windows CI run `34797241711`.
 Independent review then identified a distinct test-oracle gap: the Windows
@@ -2564,8 +2564,15 @@ passed. The diagnostic required those exact outcomes and did not modify the
 checked-out source. This is observed native counterfactual evidence, rather
 than a source-only inference. Its temporary workflow step is removed before
 merge; the ordinary CI workflow is restored, with no persistent custom gate.
-The reader and test sources are unchanged by that removal. Final exact-head
-native CI and independent re-review remain pending.
+The reader and test sources are unchanged by that removal. Native macOS/Windows
+CI run `34798947080` passed on `b4690cd`. Independent AI task/spec and separate
+whole-branch integration re-reviews of that revision also completed with no
+actionable findings; these are not human approval. A later Copilot review
+identified the stale verification-status wording corrected in this record.
+Every subsequent revision must receive exact-head native macOS/Windows CI and
+independent re-review, with all review bodies and threads checked, before the
+authorized merge. Merge-commit native verification remains a separate
+prerequisite for advancing to the next slice.
 
 - [x] Verify the clean merged baseline and assess the existing harness.
 - [x] Observe failing integration, request, capacity, context and sentinel-I/O
