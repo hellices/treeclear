@@ -2553,8 +2553,19 @@ Direct `validateUntrackedReadInfo` tests now use both native and wrapped safe
 controls, plus reparse/device/combined/unavailable attributes while preserving
 the same valid ordinary mode and size. No identity comparison can satisfy
 these assertions. The original end-to-end no-byte/close checks are retained.
-Native verification and independent re-review of these controls are pending;
-no executed Windows guard-bypass mutation experiment is claimed.
+At that review checkpoint, native verification and independent re-review of
+these controls were pending; no Windows guard-bypass experiment had run.
+
+Subsequent native CI run `34798452057` on `ac06db5` passed both platforms,
+including the direct Windows validator controls. A one-off Windows
+`go test -overlay` diagnostic omitted only the native guard in a temporary
+copy: all four unsafe-attribute cases failed, while the safe wrapped control
+passed. The diagnostic required those exact outcomes and did not modify the
+checked-out source. This is observed native counterfactual evidence, rather
+than a source-only inference. Its temporary workflow step is removed before
+merge; the ordinary CI workflow is restored, with no persistent custom gate.
+The reader and test sources are unchanged by that removal. Final exact-head
+native CI and independent re-review remain pending.
 
 - [x] Verify the clean merged baseline and assess the existing harness.
 - [x] Observe failing integration, request, capacity, context and sentinel-I/O
