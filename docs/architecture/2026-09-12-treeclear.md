@@ -15,7 +15,7 @@ state, process activity, agent session activity, and age before it produces a
 short-lived cleanup plan. Destructive actions happen only after explicit
 approval and full revalidation.
 
-The first release targets macOS and Windows and supports evidence from:
+The first release targets macOS and supports evidence from:
 
 - GitHub Copilot
 - Claude Code
@@ -24,6 +24,31 @@ The first release targets macOS and Windows and supports evidence from:
 - OpenCode
 
 The product name, repository name, and CLI command are all `treeclear`.
+
+## Release platform scope
+
+macOS is the only supported operating system for the first release. Planned
+macOS amd64/arm64 artifacts require native runtime acceptance for each
+advertised architecture; a cross-build alone is not that evidence.
+
+Windows support is deferred to
+[follow-up #15](https://github.com/hellices/treeclear/issues/15). Preserve the
+existing Windows implementations, tests, and platform interfaces. Windows-only
+requirements retained in this architecture describe that follow-up, not a
+prerequisite for the macOS milestone or a claim of current production support.
+Linux remains outside the first release.
+
+The existing native macOS and Windows CI checks remain required; passing
+Windows CI is compatibility evidence, not release qualification. This scope
+change does not alter repository protections or resolve outstanding review
+findings. Shared-code and macOS safety findings remain blocking.
+
+Before cleanup, restore, trash-prune, or scheduler mutation commands are
+exposed, unsupported operating systems must refuse them explicitly without
+mutation. This is a remaining implementation requirement, not an assertion
+that the current read-only preview already enforces a release-platform guard.
+All planning, evidence, snapshot, revalidation, privacy, and recovery safety
+invariants remain unchanged.
 
 ## Product statement
 
@@ -87,12 +112,12 @@ heuristic or one provider-specific integration.
 - Report why each candidate is safe, review-only, or protected.
 - Report expected reclaimable space before approval.
 - Provide a portable Agent Skill that calls deterministic CLI commands.
-- Support launchd and Windows Task Scheduler without a resident daemon.
+- Support launchd without a resident daemon; Windows Task Scheduler is deferred.
 
 ### Distribution
 
 - Ship one native Treeclear executable per operating system and architecture.
-- Target macOS and Windows in the first release.
+- Target macOS in the first release; defer Windows release artifacts to #15.
 - Publish checksums and an SBOM.
 - Support code signing and notarization in the release pipeline.
 
@@ -111,8 +136,8 @@ heuristic or one provider-specific integration.
   verifies command-backed evidence sources, but the MVP does not provide an OS
   sandbox for those external executables.
 - Treating agent private storage formats as stable public contracts.
-- Supporting Linux in the first release. The architecture must not prevent a
-  later Linux implementation.
+- Supporting Windows or Linux in the first release. Preserve the platform
+  boundaries for the Windows follow-up and a later Linux implementation.
 - Providing a graphical interface in the MVP.
 
 ## Competitive position
@@ -139,7 +164,7 @@ Treeclear differentiates itself through:
 - a provider-neutral capability and evidence model;
 - independently updateable signed adapters;
 - custom read-only adapters;
-- macOS and Windows process correlation;
+- macOS process correlation, with Windows qualification deferred;
 - explicit trust grades and fail-closed adapter behavior.
 
 ### Worktrunk
@@ -322,7 +347,8 @@ The process collector produces a point-in-time process snapshot with:
 macOS uses a native Darwin implementation based on `proc_pidinfo` and process
 start information.
 
-Windows uses process handles, process creation time, executable identity, and
+The deferred Windows implementation uses process handles, process creation
+time, executable identity, and
 the best available current-directory inspection. Access denial or protected
 processes yield unknown evidence. Treeclear must not infer inactivity from a
 failed Windows process query.
@@ -1111,7 +1137,9 @@ treeclear schedule remove
 
 macOS uses a per-user launchd job.
 
-Windows uses a per-user Task Scheduler task.
+The deferred Windows implementation uses a per-user Task Scheduler task.
+The first-release schedule commands reject unsupported operating systems
+without installing, changing, or removing jobs.
 
 Default scheduled behavior:
 
@@ -1254,15 +1282,19 @@ Temporary real repositories cover:
 
 ### Platform tests
 
-macOS and Windows CI cover:
+Native macOS execution qualifies the first release. Existing native Windows
+regression CI remains required, but Windows-only acceptance below belongs to
+follow-up #15. Cross-builds do not replace native execution.
+
+Platform coverage includes:
 
 - process cwd detection;
 - PID creation-time validation and reuse;
 - access-denied process inspection;
-- symlink and junction behavior;
+- symlink behavior and deferred Windows junction behavior;
 - case and separator normalization;
-- spaces, newlines, Unicode, UNC, and long paths;
-- launchd and Task Scheduler install, status, and remove.
+- spaces, newlines, and Unicode; Windows UNC/long-path acceptance is deferred;
+- launchd install, status, and remove; Windows Task Scheduler is deferred.
 
 ### Race and interruption tests
 
@@ -1300,8 +1332,7 @@ The MVP is complete when:
    support grades, and evidence or an explicit unavailable reason.
 4. Clean, stale, inactive, recoverable worktrees can be planned and removed.
 5. A removed worktree can be restored from a verified snapshot.
-6. launchd and Windows Task Scheduler plan-only jobs can be installed,
-   inspected, and removed.
+6. launchd plan-only jobs can be installed, inspected, and removed on macOS.
 7. A provider fixture change can be handled by an adapter update without
    rebuilding the core.
 8. A corrupt or incompatible adapter is blocked and rolled back.
@@ -1309,14 +1340,18 @@ The MVP is complete when:
    adapter.
 10. No adapter path can obtain a core deletion capability.
 11. Apply works without network access.
-12. macOS and Windows release artifacts pass integration tests and publish
+12. macOS release artifacts pass native integration tests and publish
     checksums and an SBOM.
+
+Unsupported-platform mutation refusal is part of these safety criteria.
+Windows product acceptance remains tracked in #15, not counted as passed or
+required for this macOS milestone.
 
 ## Delivery sequence
 
 1. Go project and CLI skeleton.
 2. Git inventory and deterministic policy engine.
-3. macOS and Windows process evidence.
+3. macOS process evidence, retaining existing Windows compatibility coverage.
 4. Plan, fingerprint, journal, and apply preflight.
 5. Snapshot, removal, and restore.
 6. Declarative adapter runner and normalized evidence SPI.
@@ -1324,14 +1359,16 @@ The MVP is complete when:
 8. Signed adapter update, pinning, health, and rollback.
 9. Custom adapter authoring and validation.
 10. Agent Skill and thin host packages.
-11. launchd and Task Scheduler integration.
+11. launchd integration.
 12. Signed release pipeline, checksums, and SBOM.
+13. Windows qualification and release in follow-up #15, after the macOS milestone.
 
 ## Deferred decisions
 
 The following are intentionally deferred and do not alter the MVP safety
 model:
 
+- Windows qualification and release timing, tracked in #15;
 - Linux release timing;
 - Sigstore versus TUF for a larger third-party adapter registry;
 - external RPC adapter transport;

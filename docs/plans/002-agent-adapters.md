@@ -15,6 +15,9 @@
 
 ## Global Constraints
 
+- Qualify adapters for the macOS-first release. Windows-specific product
+  acceptance is deferred to [#15](https://github.com/hellices/treeclear/issues/15);
+  preserve existing Windows fixtures, interfaces, and native CI.
 - Preserve every invariant and public schema introduced by Plan 001.
 - Adapters return evidence only; they never receive Git, branch, file, worktree, or session mutation APIs.
 - Prefer supported SDK, app-server, or machine-readable CLI interfaces.

@@ -3,6 +3,11 @@
 Read `docs/plans/README.md` and the active plan before editing. Architecture
 and product safety requirements in `docs/architecture/` remain canonical.
 
+The first supported release targets macOS. Windows support is deferred to
+[follow-up #15](https://github.com/hellices/treeclear/issues/15); preserve
+existing Windows code, tests, and required native CI. Deferral does not resolve
+review findings in shared or macOS code or waive any safety invariant.
+
 ## Development
 
 - Use Go 1.26.5 (language 1.26.0) and Git 2.36 or newer.

@@ -7,6 +7,12 @@ Cleanup, recovery snapshots, restore, and agent-provider adapters are not
 implemented yet. A `safe` classification or a signed plan is not deletion
 authorization. None of these commands removes a worktree.
 
+**Platform scope:** the first supported release targets macOS. Windows support
+is deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
+Existing Windows code and native CI are retained as compatibility evidence,
+not a production-support claim. Linux is also outside the first release.
+This scope decision does not make the current preview production-ready.
+
 ## Try the CLI
 
 Install Go 1.26.5 and Git 2.36 or newer:
