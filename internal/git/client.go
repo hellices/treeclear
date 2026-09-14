@@ -26,7 +26,10 @@ const (
 	gitReadTimeout  = 30 * time.Second
 )
 
-var ErrWorktreeChanged = errors.New("Git worktree state changed")
+var (
+	ErrWorktreeChanged = errors.New("Git worktree state changed")
+	ErrReadLimit       = errors.New("Git read limit exceeded")
+)
 
 type Client struct {
 	Runner       execx.Runner
@@ -57,11 +60,12 @@ func (client *Client) run(ctx context.Context, directory string, arguments ...st
 		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
 		"GIT_ATTR_NOSYSTEM":   "1",
 		"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never", "GIT_NO_LAZY_FETCH": "1",
-		"GIT_CONFIG_COUNT": "4",
+		"GIT_CONFIG_COUNT": "5",
 		"GIT_CONFIG_KEY_0": "core.fsmonitor", "GIT_CONFIG_VALUE_0": "false",
 		"GIT_CONFIG_KEY_1": "protocol.allow", "GIT_CONFIG_VALUE_1": "never",
 		"GIT_CONFIG_KEY_2": "log.showSignature", "GIT_CONFIG_VALUE_2": "false",
 		"GIT_CONFIG_KEY_3": "core.attributesFile", "GIT_CONFIG_VALUE_3": os.DevNull,
+		"GIT_CONFIG_KEY_4": "diff.autoRefreshIndex", "GIT_CONFIG_VALUE_4": "false",
 	})
 	result, err := client.Runner.Run(ctx, execx.Request{
 		Directory: directory, Name: "git", Args: arguments, Env: environment,
@@ -337,6 +341,10 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 			worktree.PathSafe = false
 			record("administrative directory", fmt.Errorf("%w: metadata is outside the repository common directory", ErrWorktreeChanged))
 		} else {
+			if err := rejectSplitIndexDirectory(ctx, worktree.AdminDir, defaultReadonlyIndexOperations()); err != nil {
+				record("read-only index preflight", err)
+				return worktree, errors.Join(failures...)
+			}
 			hashContext, cancel := context.WithTimeout(ctx, gitReadTimeout)
 			worktree.IndexHash, _, err = hashFile(hashContext, filepath.Join(worktree.AdminDir, "index"), maxGitBytes)
 			record("index hash", err)
@@ -441,7 +449,7 @@ func hashFile(ctx context.Context, path string, maxBytes int64) (string, int64, 
 		return "", 0, fmt.Errorf("metadata is not a regular file: %q", path)
 	}
 	if metadata.Size() > maxBytes {
-		return "", 0, errors.New("Git metadata exceeds collection limit")
+		return "", 0, fmt.Errorf("Git metadata exceeds collection limit: %w", ErrReadLimit)
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -459,7 +467,7 @@ func hashFile(ctx context.Context, path string, maxBytes int64) (string, int64, 
 		count, readErr := reader.Read(buffer[:])
 		total += int64(count)
 		if total > maxBytes {
-			return "", 0, errors.New("Git metadata exceeds collection limit")
+			return "", 0, fmt.Errorf("Git metadata exceeds collection limit: %w", ErrReadLimit)
 		}
 		digest.Write(buffer[:count])
 		if readErr != nil {
@@ -553,7 +561,7 @@ func readAdminEntries(ctx context.Context, directory string, limit int) ([]os.Di
 		batch, readErr := file.ReadDir(min(128, limit-len(entries)+1))
 		entries = append(entries, batch...)
 		if len(entries) > limit {
-			return nil, errors.New("Git administrative metadata exceeds entry limit")
+			return nil, fmt.Errorf("Git administrative metadata exceeds entry limit: %w", ErrReadLimit)
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) {

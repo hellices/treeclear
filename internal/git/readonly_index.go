@@ -35,14 +35,23 @@ func defaultReadonlyIndexOperations() readonlyIndexOperations {
 
 func readonlyIndexDirectoryInfo(directory string) (fs.FileInfo, error) {
 	information, err := os.Lstat(directory)
-	if err != nil || information.Mode().Type() != fs.ModeDir {
+	if err != nil {
 		return information, err
+	}
+	if err := validateReadNativeInfo(information); err != nil {
+		return nil, err
+	}
+	if information.Mode().Type() != fs.ModeDir {
+		return information, nil
 	}
 	file, err := os.Open(directory + string(filepath.Separator) + ".")
 	if err != nil {
 		return nil, err
 	}
 	information, err = file.Stat()
+	if err == nil {
+		err = validateReadNativeInfo(information)
+	}
 	if err := errors.Join(err, file.Close()); err != nil {
 		return nil, err
 	}
@@ -83,6 +92,9 @@ func rejectSplitIndexDirectory(ctx context.Context, directory string, operations
 		}
 		opened, err := operations.stat(file)
 		if err := errors.Join(err, ctx.Err()); err != nil {
+			return err
+		}
+		if err := validateReadNativeInfo(opened); err != nil {
 			return err
 		}
 		if !sameReadonlyIndexDirectory(initial, opened) {
@@ -159,10 +171,20 @@ func readonlyIndexRootInfo(ctx context.Context, directory string, operations rea
 	if err := errors.Join(err, ctx.Err()); err != nil {
 		return nil, err
 	}
-	if information == nil || information.Mode().Type() != fs.ModeDir {
+	if err := validateReadNativeInfo(information); err != nil {
+		return nil, err
+	}
+	if information.Mode().Type() != fs.ModeDir {
 		return nil, fmt.Errorf("Git administrative root is not a native directory: %w", fs.ErrInvalid)
 	}
 	return information, nil
+}
+
+func validateReadNativeInfo(information fs.FileInfo) error {
+	if information == nil || information.Sys() == nil {
+		return fmt.Errorf("native file metadata is unavailable: %w", fs.ErrInvalid)
+	}
+	return nil
 }
 
 func validateReadonlyIndexDirectoryPath(directory string) error {

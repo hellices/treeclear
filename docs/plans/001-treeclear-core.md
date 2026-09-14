@@ -3095,7 +3095,7 @@ passed on Darwin, so no native Windows pre-fix RED is claimed. Independent R3
 re-reviews and exact-head/actual-merge native CI remain required before advancing.
 
 R3 head `aea68df2c0c80a5908bf9281f7262fcbaf16cb85` passed macOS CI, but run
-`34838070056` failed 16 Windows fault-fixture assertions: `File.Stat` on an
+`34838070056` failed 14 Windows fault-fixture leaf assertions: `File.Stat` on an
 already closed handle reports `ERROR_INVALID_HANDLE`, not `fs.ErrClosed`.
 The source snapshot suite passed on Windows (51.074s); its race/build steps
 were not reached. The corrected test requires exactly one successful native
@@ -3106,6 +3106,35 @@ passes the focused fixture (0.491s). The renewed full normal/race matrices
 pass (snapshot 33.995s/59.198s), as do vet/build, empty formatting/diff checks
 and unchanged Go/module hashes. Final-revision independent review and native
 macOS/Windows CI remain required; the failed run is not treated as acceptance.
+
+R4 head `722631d` passed native macOS/Windows CI `34838794928`, bound to
+tree `02f6399a8bce685257f2ca332e141e2249c5cfb5`. Independent AI review still
+found actionable ordinary-index refresh, same-store administrative routing,
+native Windows attribute, preflight-order and capacity-classification gaps.
+These findings block merge regardless of the passing run. The R3 Windows
+failure count is corrected to 14 leaf assertions (seven stages with two
+cancellation variants); parent/package summaries are not additional cases.
+
+The R5 test-first checkpoint disables `diff.autoRefreshIndex` in every guarded
+Git invocation, including against repository configuration. Native
+identical-content inode replacement was RED with default/true settings, then
+GREEN for default/true/false settings with unchanged source/index bytes and
+mtimes (5.719s). Inspection now preflights split-index names before hashing;
+four primary/linked and present/missing-index cases were RED, then GREEN.
+Legacy metadata byte/entry and strict untracked-selection limits now preserve
+`git.ErrReadLimit`; native composition and typed/wrapped/canceled/opaque-error
+controls pass (9.616s). Large legacy status summaries keep their complete
+counts. Missing native evidence fails as invalid rather than changed; six
+portable assertion failures now pass, including resource-lifetime controls.
+
+Windows-specific native attribute tests are included before their production
+fix so the missing REPARSE/DEVICE/shape checks can be observed on a native
+Windows runner. Local cross-compilation is not native RED or acceptance.
+This checkpoint is deliberately not merge-ready. Same-store administrative
+routing, Windows correction, exact-final-tree independent re-review, both
+native CI platforms, remote-thread disposition and actual-merge verification
+remain pending. No source publication, cleanup or release is authorized by
+this checkpoint's test results.
 
 ### Remaining Task 8 lifecycle
 

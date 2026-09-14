@@ -427,7 +427,7 @@ func assertRawReadRequest(test *testing.T, request execx.Request, directory stri
 		test.Fatalf("unsafe raw read request: %#v", request)
 	}
 	environment := "\n" + strings.Join(request.Env, "\n") + "\n"
-	for _, required := range []string{"GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_KEY_1=protocol.allow", "GIT_CONFIG_VALUE_1=never", "LC_ALL=C"} {
+	for _, required := range []string{"GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_COUNT=5", "GIT_CONFIG_KEY_1=protocol.allow", "GIT_CONFIG_VALUE_1=never", "GIT_CONFIG_KEY_4=diff.autoRefreshIndex", "GIT_CONFIG_VALUE_4=false", "LC_ALL=C"} {
 		if !strings.Contains(environment, "\n"+required+"\n") {
 			test.Fatalf("raw read omitted environment guard %q", required)
 		}
