@@ -42,17 +42,19 @@ func validateUntrackedEntries(entries []UntrackedEntry, maximumBytes int64) erro
 		byIdentity[identity] = index
 		paths[index] = entryPath{original: entry.Path, identity: identity}
 	}
+	slices.SortFunc(paths, func(left, right entryPath) int { return strings.Compare(left.identity, right.identity) })
 	for _, entry := range paths {
-		for parent := path.Dir(entry.identity); parent != "."; parent = path.Dir(parent) {
-			if index, found := byIdentity[parent]; found {
-				ancestor := entries[index]
-				if ancestor.Kind != "directory" || !strings.HasPrefix(entry.original, ancestor.Path+"/") {
-					return fmt.Errorf("%w: conflicting entry ancestor", ErrUntrackedInvalid)
-				}
+		prefix := entry.identity + "/"
+		descendantIndex, _ := slices.BinarySearchFunc(paths, prefix, func(candidate entryPath, target string) int {
+			return strings.Compare(candidate.identity, target)
+		})
+		if descendantIndex < len(paths) && strings.HasPrefix(paths[descendantIndex].identity, prefix) {
+			ancestor := entries[byIdentity[entry.identity]]
+			if ancestor.Kind != "directory" || !strings.HasPrefix(paths[descendantIndex].original, ancestor.Path+"/") {
+				return fmt.Errorf("%w: conflicting entry ancestor", ErrUntrackedInvalid)
 			}
 		}
 	}
-	slices.SortFunc(paths, func(left, right entryPath) int { return strings.Compare(left.identity, right.identity) })
 	for index := 1; index < len(paths); index++ {
 		if untrackedPathSpellingConflict(paths[index-1].original, paths[index].original) {
 			return fmt.Errorf("%w: case-folded parent directory aliases", ErrUntrackedInvalid)

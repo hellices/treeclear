@@ -2394,9 +2394,23 @@ implementation and bounded fixtures. Malformed numeric fields use
 one byte beyond that standard-library cap returns `tar.ErrFieldTooLong` and
 `ErrUntrackedLimit` below the caller's larger budget. The existing mapping is
 retained, with permanent positive/capacity/malformed regression coverage and
-no new behavioral RED claim. The follow-up suite now contains 22 focused codec
-test functions plus 24 bounded fuzz seeds. Every update still requires full
-local verification, independent re-review and native CI before merge.
+no new behavioral RED claim. That follow-up head `5490f4f` contains 22 focused
+codec test functions plus 24 bounded fuzz seeds.
+
+The next review identified repeated `path.Dir`/`path.Clean` scans in ancestor
+validation. A fixed corpus of 4,096 entries with 4,095-byte paths exceeded a
+five-second diagnostic timeout, with the stack in that ancestor walk. This is
+a reproduced performance failure, not an assertion-level functional RED or
+the unrelated unresolved Task8A fuzz timeout. Ancestor validation now searches
+the sorted folded paths for each explicit entry's first descendant, retaining
+the directory and original-spelling checks without rescanning every implicit
+parent. The same diagnostic command passes in 2.050 seconds locally; the
+permanent test has no machine-specific timing assertion. Ordinary one-iteration
+Go benchmarks for 64 entries at depth 2,043 measured 384.4 ms before and 10.9 ms
+after; these are local observations, not statistical or cross-platform claims.
+The suite now contains 23 focused codec tests plus 24 bounded fuzz seeds. Every
+update still requires full local verification, independent re-review and native
+CI before merge.
 
 - [ ] Create a Task8D PR, repeat independent review until clean, and verify
   native macOS/Windows CI on its final head before the authorized merge.
