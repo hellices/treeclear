@@ -23,6 +23,20 @@ func (runner runnerFunc) Run(ctx context.Context, request execx.Request) (execx.
 	return runner(ctx, request)
 }
 
+func TestClientGitDirectoryRejectsCanceledResult(test *testing.T) {
+	directory := readonlyIndexCanonicalTemporaryDirectory(test)
+	ctx, cancel := context.WithCancel(test.Context())
+	defer cancel()
+	client := NewClient(runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
+		cancel()
+		return execx.Result{Stdout: []byte(filepath.ToSlash(directory) + "\n")}, nil
+	}))
+	actual, err := client.CommonGitDir(ctx, directory)
+	if !errors.Is(err, context.Canceled) || actual != "" || errors.Is(err, ErrWorktreeChanged) {
+		test.Fatalf("canceled directory lookup returned a path or lost its cause: %q, %v", actual, err)
+	}
+}
+
 func TestClientRejectsOldGit(test *testing.T) {
 	for _, version := range []struct {
 		value string

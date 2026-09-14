@@ -163,7 +163,7 @@ func (client *Client) gitDirectory(ctx context.Context, repository string, argum
 	if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("Git returned a non-absolute metadata path %q", path)
 	}
-	return filepath.EvalSymlinks(path)
+	return resolveGitPath(ctx, path)
 }
 
 func (client *Client) ListWorktrees(ctx context.Context, repository string) ([]domain.Worktree, error) {

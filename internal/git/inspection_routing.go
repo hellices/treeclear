@@ -127,14 +127,7 @@ func inspectionPointerPath(ctx context.Context, directory, value string) (string
 	if len(value) > maxInspectionPointerBytes {
 		return "", fmt.Errorf("administrative pointer path exceeds limit: %w", ErrReadLimit)
 	}
-	resolved, err := filepath.EvalSymlinks(value)
-	if err := errors.Join(err, ctx.Err()); err != nil {
-		return "", err
-	}
-	if len(resolved) > maxInspectionPointerBytes {
-		return "", fmt.Errorf("resolved administrative pointer path exceeds limit: %w", ErrReadLimit)
-	}
-	return resolved, nil
+	return resolveGitPath(ctx, value)
 }
 
 func inspectionDirectoryInfo(ctx context.Context, directory string) (fs.FileInfo, error) {

@@ -3277,6 +3277,42 @@ UTF-8 pointer input precedes explicit encoding validation (focused GREEN
 0.408s), preventing lossy native encoding conversion. Native directory
 resolution remains unchanged in this checkpoint and still needs correction.
 
+Checkpoint `e06c334`, tree `68f18f54ecbe6052182cfd104fef7f2e0d94ea61`,
+passed macOS CI `34852039116`. Windows reached all native Git and identity
+fixture preconditions, then failed four product leaf cases with six assertion
+messages: two administrative-alias inspections and two direct junction cases,
+each covering both pointer and raw Git-output resolution. The Windows snapshot
+normal suite passed (83.741s); race/build/source-unchanged steps were not reached.
+Checkout `9e282d85657c9b3da6fd68eb6642c6751c383388` has that exact tree and
+parents `d27094e`/`e06c334`. These are genuine native REDs, not setup failures.
+
+The corrective candidate leaves those native Windows tests unchanged. Both
+pointer and Git-output resolution use one bounded, cancellable private path
+boundary. Unix retains filesystem-order EvalSymlinks traversal; Windows uses
+native full/final-path APIs with a held read-attributes handle, validates the
+eager target observations, and reopens the final name without following a
+terminal reparse point to compare native identity and metadata. Explicit
+directory aliases remain supported; guarded pointer-file leaves and canonical
+source-root checks are unchanged. Native path buffers have fixed capacity,
+strict terminator/NUL and lossless UTF-16 checks, and decoded UTF-8 byte bounds.
+Errors, checked-close failures and cancellation return no usable path.
+
+A canceled raw Git-output result produced local assertion RED (0.474s) before
+the shared boundary correction. Controlled portable native-buffer tests also
+produced four RED leaves for missing termination, embedded NUL and unpaired
+high/low surrogates before strict decoding; these are not malformed native
+filesystem fixtures. Focused pointer, cancellation and buffer controls passed
+(0.448s), as did Windows test-binary cross-compilation, which is not native
+execution. The frozen corrective source passed `go test -count=1 ./...`
+(Git 34.823s, snapshot 60.493s), `go test -race -count=1 ./...` (Git 40.239s,
+snapshot 90.415s), `go vet ./...`, and `go build ./...` on Go 1.26.5
+darwin/arm64. `gofmt -l .` and `git diff --check` printed nothing; every
+non-ignored source-file hash was unchanged across the matrix. Native Windows
+execution of this correction is still pending. Finite pathname and handle
+observations are not atomic or ABA-proof, and the initial Windows raw-Lstat
+identity limitation remains. Independent review is still blocked; neither
+these corrections nor CI alone authorize merge or dependent work.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**
