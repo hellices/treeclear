@@ -2281,6 +2281,12 @@ Return nil output on any failure; use `ErrUntrackedInvalid` for invalid input/
 format/profile and `ErrUntrackedLimit` for capacity breaches. Empty entries
 encode a real empty archive; empty encoded bytes are invalid.
 
+The required Go 1.26.5 tar reader also caps special metadata at 1 MiB. That
+standard-library capacity breach is `ErrUntrackedLimit`, retaining
+`tar.ErrFieldTooLong` as a wrapped cause, even below the caller's larger byte
+budget. Malformed numeric fields and unsupported header formats instead return
+`ErrUntrackedInvalid`; they are not conflated with that metadata capacity.
+
 Entry paths use the existing portable lexical profile and case-fold collision
 checks. Reject root/absolute/traversal paths, backslashes, reserved/control
 names, `.git` components and duplicates. Explicit file/symlink ancestors of
@@ -2303,8 +2309,9 @@ without modifying input slices or retaining aliases into encoded input.
 Require one complete gzip member, verified checksum/trailer and no appended
 members or garbage; closing a gzip reader alone is insufficient. Require an
 aligned tar stream and its two zero end blocks, not a parseable prefix.
-Reject hidden second archives/nonzero trailing data; ordinary all-zero tar
-padding can be accepted within the same budget. Bounded decompression before
+Reject nonzero final-entry alignment padding, hidden second archives and
+nonzero trailing data; ordinary all-zero tar padding can be accepted within
+the same budget. Bounded decompression before
 `tar.Reader` is sufficient; do not introduce a custom tar parser.
 
 These are structural checks, not Git-ignore/sensitivity decisions, native
@@ -2353,8 +2360,9 @@ func TestUntrackedCodecRoundTrip(test *testing.T) {
 Local implementation evidence: missing-API failures were followed by intended
 assertion failures against explicit unimplemented placeholders, then passing
 codec and real-Git integration tests. A first implementation edit's syntax
-failure was recorded separately, not as behavioral RED. All 19 focused tests
-and 24 ordinary bounded fuzz seeds pass normal/race execution. Additional seed
+failure was recorded separately, not as behavioral RED. Initial head `1e829e2`
+passed 19 focused tests and 24 ordinary bounded fuzz seeds in normal/race
+execution. Additional seed
 and limiter coverage was added after the first GREEN, not claimed as fresh RED.
 Both Git composition and native Unix special-mode/link fixtures pass; their
 three-repeat race run also passes. On local Go 1.26.5 darwin/arm64, all required
@@ -2368,8 +2376,27 @@ fixtures with empty, owner or path global metadata before, between, after or
 repeated among valid files are rejected with nil output. A permanent regression
 test also asserts that the standard reader exposes each global header. This
 adds coverage for an already-rejected input, not a new behavioral fix or RED
-claim, and does not introduce a raw tar parser. Independent re-review and
-native CI on the updated head remain required.
+claim, and does not introduce a raw tar parser. That follow-up head `1ad668f`
+has 20 focused codec tests, not 19, plus the same 24 bounded fuzz seeds.
+
+A subsequent review's suppressed findings exposed a final-file alignment
+padding gap: bytes skipped by `tar.Reader` preceded the codec's zero-tail
+check. Sixteen USTAR/PAX mutations failed their intended rejection assertions
+because the decoder returned entries with no error. After the one-line framing
+correction, all are rejected with a classified error and nil entries. Valid
+zero padding still passes. This is a strict trailing-framing fix, not
+authenticated capture or a custom tar parser.
+
+The parser-error finding was independently checked against the required Go
+implementation and bounded fixtures. Malformed numeric fields use
+`tar.ErrHeader` or an unsupported format and already return
+`ErrUntrackedInvalid`. Valid PAX owner metadata at the 1 MiB boundary succeeds;
+one byte beyond that standard-library cap returns `tar.ErrFieldTooLong` and
+`ErrUntrackedLimit` below the caller's larger budget. The existing mapping is
+retained, with permanent positive/capacity/malformed regression coverage and
+no new behavioral RED claim. The follow-up suite now contains 22 focused codec
+test functions plus 24 bounded fuzz seeds. Every update still requires full
+local verification, independent re-review and native CI before merge.
 
 - [ ] Create a Task8D PR, repeat independent review until clean, and verify
   native macOS/Windows CI on its final head before the authorized merge.

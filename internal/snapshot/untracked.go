@@ -114,7 +114,7 @@ func decodeUntrackedTar(expanded []byte, maximumBytes int64) ([]UntrackedEntry, 
 		header, err := archive.Next()
 		if err == io.EOF {
 			consumed := len(expanded) - input.Len() - before
-			if consumed != padding+2*untrackedBlockBytes || !untrackedZeroBytes(expanded[before+padding:]) {
+			if consumed != padding+2*untrackedBlockBytes || !untrackedZeroBytes(expanded[before:]) {
 				return nil, fmt.Errorf("%w: missing tar end blocks or trailing content", ErrUntrackedInvalid)
 			}
 			break
