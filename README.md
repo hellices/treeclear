@@ -90,6 +90,12 @@ A Git worktree root that differs from its registered path is unsafe. Missing
 process permissions or unsupported OS inspection also remain unknown.
 Agent-provider evidence is deliberately absent in this preview.
 
+Split-index backing entries (`sharedindex.*`, including retained remnants)
+also block collection before index-reading Git commands. Treeclear does not
+rewrite indexes or reset timestamps to bypass this restriction. The target's
+effective common Git directory must identify the same native directory as the
+repository's common store; a physically distinct copied store is not equivalent.
+
 ## Development
 
 Run `go test -count=1 ./...`, `go test -race -count=1 ./...`, `go vet ./...`,

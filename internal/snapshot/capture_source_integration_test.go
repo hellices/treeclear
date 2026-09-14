@@ -7,12 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/execx"
@@ -216,6 +218,7 @@ type captureNativeFixture struct {
 type captureNativeState struct {
 	sources        []UntrackedEntry
 	administrative []AdminEntry
+	modified       map[string]time.Time
 	references     string
 }
 
@@ -279,9 +282,24 @@ func captureNativeWrite(test *testing.T, directory, name string, contents []byte
 
 func (fixture captureNativeFixture) state(test *testing.T) captureNativeState {
 	test.Helper()
+	modified := make(map[string]time.Time)
+	if err := filepath.WalkDir(fixture.expected.AdminDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		information, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		modified[path] = information.ModTime()
+		return nil
+	}); err != nil {
+		test.Fatal(err)
+	}
 	return captureNativeState{
 		sources:        verifyBundleNativeSourceEntries(test, fixture.worktree),
 		administrative: gitManifestFixture(test, fixture.repository, fixture.worktree).AdministrativeEntries,
+		modified:       modified,
 		references:     fixture.repository.Git(test, "for-each-ref", "--format=%(refname) %(objectname)"),
 	}
 }
@@ -289,7 +307,7 @@ func (fixture captureNativeFixture) state(test *testing.T) captureNativeState {
 func (fixture captureNativeFixture) assertState(test *testing.T, wanted captureNativeState) {
 	test.Helper()
 	if actual := fixture.state(test); !reflect.DeepEqual(actual, wanted) {
-		test.Error("capture changed source bytes/modes/links, ignored content, administrative/index bytes, or Git refs")
+		test.Error("capture changed source bytes/modes/links, ignored content, administrative/index bytes or mtimes, or Git refs")
 	}
 }
 

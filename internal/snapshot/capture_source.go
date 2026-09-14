@@ -214,7 +214,10 @@ func sourceCallError(ctx context.Context, err error) error {
 }
 
 func sourceCaptureError(err error) error {
-	if errors.Is(err, ErrManifestLimit) || errors.Is(err, ErrUntrackedLimit) || errors.Is(err, execx.ErrOutputLimit) {
+	if errors.Is(err, git.ErrWorktreeChanged) {
+		err = fmt.Errorf("%w: %w", ErrSourceChanged, err)
+	}
+	if errors.Is(err, ErrManifestLimit) || errors.Is(err, ErrUntrackedLimit) || errors.Is(err, execx.ErrOutputLimit) || errors.Is(err, git.ErrIndexPreflightLimit) {
 		return fmt.Errorf("%w: %w: %w", ErrSourceInvalid, ErrSourceLimit, err)
 	}
 	return fmt.Errorf("%w: %w", ErrSourceInvalid, err)

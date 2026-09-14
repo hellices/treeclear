@@ -2889,6 +2889,12 @@ modes, rather than treating unchanged status counts as source stability.
 - Test: `internal/snapshot/capture_source_test.go`
 - Test: `internal/snapshot/capture_source_integration_test.go`
 
+Review-driven integration corrections also update `internal/git/client.go`,
+add the bounded `internal/git/readonly_index.go` preflight and focused Git
+regressions, and document the conservative unsupported-layout boundary in
+`README.md`. Existing raw/status command-sequence fixtures retain their exact
+guard assertions with the additional index-free lookups.
+
 **Interface:**
 
 ```go
@@ -2928,7 +2934,9 @@ Each collection performs the following bounded sequence:
 2. Enrich that listed target with `InspectWorktree`; require known state,
    no errors and agreement with the supplied source identity, status, hashes
    and observed Git metadata. Do not trust a stale supplied record in place of
-   fresh inspection.
+   fresh inspection. Resolve the target's effective common Git directory and
+   verify its native identity against the primary common store before any
+   index/content reads. Native aliases are not physically distinct stores.
 3. Read `StatusSnapshot`; require agreement with the inspected status and its
    exact selected leaf count. Retain raw bytes and exact untracked paths.
 4. Read guarded staged and unstaged binary patches, administrative diagnostics,
@@ -2959,6 +2967,14 @@ Expose `ErrSourceInvalid` for every failure, `ErrSourceChanged` for changed
 observations, and `ErrSourceLimit` for invalid budgets or known byte/capacity
 failures. Preserve context, filesystem, Git and existing codec error causes;
 do not classify arbitrary Git errors by matching their text.
+
+The shared Git boundary preflights each `ls-files`, `status` and `diff` dispatch
+using an index-free administrative-directory lookup and bounded native name
+enumeration. Any immediate `sharedindex.*` backing entry, including retained
+remnants and case aliases, makes the layout unsupported until a non-mutating
+split-index implementation exists. Do not read/rewrite the split index or
+restore its timestamps. These preflights retain the existing non-atomic,
+non-ABA-proof limits; they do not establish a filesystem transaction.
 
 Matching bounded observations are not a filesystem transaction or proof against
 unobserved change-and-revert (ABA) activity or a malicious same-user writer.
@@ -3031,6 +3047,52 @@ matrices passed (snapshot 31.465s/56.267s), as did vet/build, empty formatting
 output and diff checks, with identical Go/module hashes before and after.
 These are local macOS results; the revised exact-head native Windows controls
 and both independent re-reviews still require completion before merge.
+
+The fixture-only head `c7491b8933a34061e7562bca3b44bc0eb8975eac` subsequently
+passed native macOS/Windows CI `34834017678`; the task re-review found no new
+fixture issue. Whole-branch AI integration review nevertheless found two
+Important source-contract defects and one Minor error-category defect: the
+effective common store could differ from the pinned primary store; native Git
+split-index reads refreshed backing-file mtimes even on capture failure; and a
+detected intra-inspection HEAD change lacked `ErrSourceChanged`. These findings
+were reproduced on that exact head before fixes, independently of passing CI.
+The controller's three original probes failed in 3.975s. Merge remains blocked
+until all fixes receive revision-bound review and renewed native CI.
+
+Durable regressions now cover common-directory conflicts before index reads,
+HEAD/branch/attached-detached change causes, unchanged opaque read errors and
+administrative mtime preservation, including split-index refusal. They failed
+before the behavior changes. The identity correction compares native directory
+identities and preserves legitimate case aliases; a self-review regression
+first exposed and then corrected an over-strict lexical comparison. The shared
+Git client emits a typed recognized-state-change cause, which capture maps to
+`ErrSourceChanged` while preserving the original cause. The updated native
+identity/cause/split-index regressions pass locally (Git 3.129s, snapshot 2.981s).
+These focused results are not yet whole-matrix, independent re-review or native
+Windows acceptance of the new Git-boundary changes.
+
+The integrated R3 correction rejects immediate `sharedindex.*` backing entries
+before every `ls-files`, `status` and `diff` dispatch. Native primary/linked
+fixtures also introduce a split index after `ls-files` and prove that the next
+dispatch refuses without further byte or mtime changes. Directory enumeration
+uses bounded name-only batches and retained native identities. Explicit entry,
+path and requested-read capacity failures expose `git.ErrIndexPreflightLimit`,
+which capture maps to `ErrSourceLimit`; wrapped and canceled causes are retained,
+and identical opaque error text is not reclassified. The source mapping's 24
+selected typed-error assertions failed before the mapping and subsequently
+passed, including the complete collector-error matrix (0.853s).
+
+The first integrated normal suite exposed one remaining legacy status-selection
+command-sequence expectation. Its focused assertion failed (0.586s), then passed
+(0.695s) with the two required index-free preflights and the single-status-payload
+assertion preserved. The renewed full `go test -count=1 ./...` passed (Git
+17.884s, snapshot 33.450s); `go test -race -count=1 ./...` passed (Git 20.258s,
+snapshot 58.702s). `go vet ./...` and `go build ./...` exited zero; `gofmt -l .`
+and `git diff --check` printed nothing, with identical Go/module hashes before
+and after. These are Go1.26.5 darwin/arm64 results. The retained-index-ID test
+helper also now uses handle-based observations; its pre-fix lifetime regression
+passed on Darwin, so no native Windows pre-fix RED is claimed. Independent R3
+re-reviews and exact-head/actual-merge native CI remain required before advancing.
 
 ### Remaining Task 8 lifecycle
 

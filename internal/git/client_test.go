@@ -110,12 +110,16 @@ func TestClientRemovalRejectsEmptyTarget(test *testing.T) {
 }
 
 func TestClientDiffDisablesExternalPrograms(test *testing.T) {
+	directory := test.TempDir()
 	var actual execx.Request
 	client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 		actual = request
+		if request.Args[0] == "rev-parse" {
+			return readonlyIndexPreflightResult(test, request, directory), nil
+		}
 		return execx.Result{}, nil
 	}))
-	if _, err := client.Diff(context.Background(), test.TempDir(), true); err != nil {
+	if _, err := client.Diff(context.Background(), directory, true); err != nil {
 		test.Fatal(err)
 	}
 	arguments := strings.Join(actual.Args, " ")
@@ -168,7 +172,7 @@ func TestClientRejectsAdministrativeDirectoryOutsideRepository(test *testing.T) 
 	actual, err := NewClient(nil).InspectWorktree(context.Background(), repository.Root, domain.Worktree{
 		Path: other.Root, RepositoryRoot: repository.Root, PathSafe: true, GitStateKnown: true,
 	})
-	if err == nil || !strings.Contains(err.Error(), "metadata is outside the repository common directory") {
+	if !errors.Is(err, ErrWorktreeChanged) {
 		test.Fatalf("administrative directory escape was not reported: %v", err)
 	}
 	if actual.PathSafe || actual.GitStateKnown || len(actual.CollectionErrors) == 0 || actual.IndexHash != "" || actual.AdminHash != "" {
@@ -329,13 +333,17 @@ func TestClientRejectsUnsafeIndexEntries(test *testing.T) {
 		{"malformed-record", "not an index entry\x00", false},
 	} {
 		test.Run(entry.name, func(test *testing.T) {
+			directory := test.TempDir()
 			client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+				if request.Args[0] == "rev-parse" {
+					return readonlyIndexPreflightResult(test, request, directory), nil
+				}
 				if request.Args[0] == "ls-files" {
 					return execx.Result{Stdout: []byte(entry.output)}, nil
 				}
 				return execx.Result{}, nil
 			}))
-			if _, err := client.Status(context.Background(), test.TempDir()); (err == nil) != entry.allowed {
+			if _, err := client.Status(context.Background(), directory); (err == nil) != entry.allowed {
 				test.Fatalf("allowed = %t, status error = %v", entry.allowed, err)
 			}
 		})

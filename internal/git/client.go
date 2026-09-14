@@ -26,6 +26,8 @@ const (
 	gitReadTimeout  = 30 * time.Second
 )
 
+var ErrWorktreeChanged = errors.New("Git worktree state changed")
+
 type Client struct {
 	Runner       execx.Runner
 	BaseBranches []string
@@ -41,6 +43,14 @@ func NewClient(runner execx.Runner) *Client {
 func (client *Client) run(ctx context.Context, directory string, arguments ...string) (execx.Result, error) {
 	if directory == "" && !(len(arguments) == 1 && arguments[0] == "--version") {
 		return execx.Result{}, errors.New("Git working directory is required")
+	}
+	if len(arguments) != 0 {
+		switch arguments[0] {
+		case "ls-files", "status", "diff":
+			if err := client.rejectSplitIndex(ctx, directory); err != nil {
+				return execx.Result{}, fmt.Errorf("Git read-only index preflight: %w", err)
+			}
+		}
 	}
 	environment := execx.SanitizedEnvironment(os.Environ(), map[string]string{
 		"LC_ALL": "C", "LANG": "C", "GIT_OPTIONAL_LOCKS": "0",
@@ -113,9 +123,31 @@ func (client *Client) verifyWorktreeRoot(ctx context.Context, worktree string) e
 		return err
 	}
 	if !registered.IsDir() || !effective.IsDir() || !os.SameFile(registered, effective) {
-		return fmt.Errorf("effective Git worktree %q differs from registered path %q", root, worktree)
+		return fmt.Errorf("%w: effective Git worktree %q differs from registered path %q", ErrWorktreeChanged, root, worktree)
 	}
 	return nil
+}
+
+func (client *Client) verifyCommonGitDir(ctx context.Context, worktree, expected string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	effective, err := client.CommonGitDir(ctx, worktree)
+	if err != nil {
+		return err
+	}
+	registeredInfo, err := os.Stat(expected)
+	if err != nil {
+		return err
+	}
+	effectiveInfo, err := os.Stat(effective)
+	if err != nil {
+		return err
+	}
+	if !registeredInfo.IsDir() || !effectiveInfo.IsDir() || !os.SameFile(registeredInfo, effectiveInfo) {
+		return fmt.Errorf("%w: effective common Git directory %q differs from repository identity %q", ErrWorktreeChanged, effective, expected)
+	}
+	return ctx.Err()
 }
 
 func (client *Client) gitDirectory(ctx context.Context, repository string, arguments ...string) (string, error) {
@@ -285,6 +317,15 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 	}
 	record("common directory", err)
 	worktree.CommonGitDir = commonDirectory
+	if err == nil {
+		if err := client.verifyCommonGitDir(ctx, worktree.Path, commonDirectory); err != nil {
+			worktree.PathSafe = false
+			record("effective common directory", err)
+		}
+	}
+	if len(failures) != 0 {
+		return worktree, errors.Join(failures...)
+	}
 	worktree.AdminDir, err = client.gitDirectory(ctx, worktree.Path, "--absolute-git-dir")
 	if err != nil {
 		worktree.PathSafe = false
@@ -294,7 +335,7 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 		relative, relErr := filepath.Rel(commonDirectory, worktree.AdminDir)
 		if relErr != nil || !filepath.IsLocal(relative) {
 			worktree.PathSafe = false
-			record("administrative directory", errors.New("metadata is outside the repository common directory"))
+			record("administrative directory", fmt.Errorf("%w: metadata is outside the repository common directory", ErrWorktreeChanged))
 		} else {
 			hashContext, cancel := context.WithTimeout(ctx, gitReadTimeout)
 			worktree.IndexHash, _, err = hashFile(hashContext, filepath.Join(worktree.AdminDir, "index"), maxGitBytes)
@@ -317,17 +358,23 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 		if decodeErr != nil || (len(head) != 40 && len(head) != 64) {
 			record("HEAD", errors.New("invalid object ID"))
 		} else if worktree.Head != "" && worktree.Head != head {
-			record("HEAD", errors.New("HEAD changed during collection"))
+			record("HEAD", fmt.Errorf("%w: HEAD changed during collection", ErrWorktreeChanged))
 		}
 		worktree.Head = head
 	}
 	branchResult, branchErr := client.run(ctx, worktree.Path, "symbolic-ref", "--quiet", "HEAD")
-	if !(worktree.Detached && isQuietCommandExit(branchResult, branchErr, 1)) {
+	if isQuietCommandExit(branchResult, branchErr, 1) {
+		if !worktree.Detached {
+			record("branch", fmt.Errorf("%w: HEAD became detached: %w", ErrWorktreeChanged, branchErr))
+		}
+	} else {
 		record("branch", branchErr)
 		if branchErr == nil {
 			branch, valid := strings.CutPrefix(outputLine(branchResult.Stdout), "refs/heads/")
-			if !valid || branch == "" || worktree.Detached || (worktree.Branch != "" && branch != worktree.Branch) {
-				record("branch", errors.New("branch identity changed or is invalid"))
+			if !valid || branch == "" {
+				record("branch", errors.New("branch identity is invalid"))
+			} else if worktree.Detached || (worktree.Branch != "" && branch != worktree.Branch) {
+				record("branch", fmt.Errorf("%w: branch identity changed during collection", ErrWorktreeChanged))
 			}
 			worktree.Branch = branch
 		}
