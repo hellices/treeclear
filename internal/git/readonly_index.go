@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -34,7 +35,13 @@ func defaultReadonlyIndexOperations() readonlyIndexOperations {
 }
 
 func readonlyIndexDirectoryInfo(directory string) (fs.FileInfo, error) {
-	information, err := os.Lstat(directory)
+	operations := defaultReadonlyIndexOperations()
+	operations.lstat = os.Lstat
+	return readonlyIndexDirectoryInfoWithOperations(directory, operations)
+}
+
+func readonlyIndexDirectoryInfoWithOperations(directory string, operations readonlyIndexOperations) (fs.FileInfo, error) {
+	information, err := operations.lstat(directory)
 	if err != nil {
 		return information, err
 	}
@@ -44,18 +51,21 @@ func readonlyIndexDirectoryInfo(directory string) (fs.FileInfo, error) {
 	if information.Mode().Type() != fs.ModeDir {
 		return information, nil
 	}
-	file, err := os.Open(directory + string(filepath.Separator) + ".")
+	file, err := operations.open(directory)
 	if err != nil {
 		return nil, err
 	}
-	information, err = file.Stat()
+	opened, err := operations.stat(file)
 	if err == nil {
-		err = validateReadNativeInfo(information)
+		err = validateReadNativeInfo(opened)
 	}
-	if err := errors.Join(err, file.Close()); err != nil {
+	if err == nil && (information.Mode() != opened.Mode() || information.Size() != opened.Size() || !information.ModTime().Equal(opened.ModTime()) || runtime.GOOS != "windows" && !os.SameFile(information, opened)) {
+		err = fmt.Errorf("%w: Git administrative directory changed while opening its initial observation: %q", ErrWorktreeChanged, directory)
+	}
+	if err := errors.Join(err, operations.close(file)); err != nil {
 		return nil, err
 	}
-	return information, nil
+	return opened, nil
 }
 
 func (client *Client) rejectSplitIndex(ctx context.Context, directory string) error {

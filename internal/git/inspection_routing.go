@@ -70,7 +70,7 @@ func verifyInspectionRouting(ctx context.Context, worktree domain.Worktree) erro
 	if !ok {
 		return fmt.Errorf("invalid Git directory marker: %w", fs.ErrInvalid)
 	}
-	target, err := inspectionPointerPath(worktree.Path, pointer)
+	target, err := inspectionPointerPath(ctx, worktree.Path, pointer)
 	if err != nil {
 		return err
 	}
@@ -88,14 +88,18 @@ func verifyInspectionRouting(ctx context.Context, worktree domain.Worktree) erro
 	if err != nil {
 		return err
 	}
-	backlink, err := inspectionPointerPath(worktree.AdminDir, strings.TrimRight(string(backward), " \t\r\n\v\f"))
+	backlink := strings.TrimRight(string(backward), " \t\r\n\v\f")
+	if backlink == "" || strings.IndexByte(backlink, 0) >= 0 {
+		return fmt.Errorf("invalid administrative backlink: %w", fs.ErrInvalid)
+	}
+	if !strings.HasSuffix(backlink, "/.git") {
+		return fmt.Errorf("%w: administrative backlink does not name a Git marker", ErrWorktreeChanged)
+	}
+	backlinkDirectory, err := inspectionPointerPath(ctx, worktree.AdminDir, strings.TrimSuffix(backlink, ".git"))
 	if err != nil {
 		return err
 	}
-	if filepath.Base(backlink) != ".git" {
-		return fmt.Errorf("%w: administrative backlink does not name a Git marker", ErrWorktreeChanged)
-	}
-	backlinkRoot, err := inspectionDirectoryInfo(ctx, filepath.Dir(backlink))
+	backlinkRoot, err := inspectionDirectoryInfo(ctx, backlinkDirectory)
 	if err != nil {
 		return err
 	}
@@ -105,7 +109,10 @@ func verifyInspectionRouting(ctx context.Context, worktree domain.Worktree) erro
 	return ctx.Err()
 }
 
-func inspectionPointerPath(directory, value string) (string, error) {
+func inspectionPointerPath(ctx context.Context, directory, value string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if value == "" || strings.IndexByte(value, 0) >= 0 {
 		return "", fmt.Errorf("invalid administrative pointer: %w", fs.ErrInvalid)
 	}
@@ -114,12 +121,19 @@ func inspectionPointerPath(directory, value string) (string, error) {
 		if filepath.VolumeName(value) != "" {
 			return "", fmt.Errorf("volume-relative administrative pointer: %w", fs.ErrInvalid)
 		}
-		value = filepath.Join(directory, value)
+		value = directory + string(filepath.Separator) + value
 	}
 	if len(value) > maxInspectionPointerBytes {
 		return "", fmt.Errorf("administrative pointer path exceeds limit: %w", ErrReadLimit)
 	}
-	return filepath.Clean(value), nil
+	resolved, err := filepath.EvalSymlinks(value)
+	if err := errors.Join(err, ctx.Err()); err != nil {
+		return "", err
+	}
+	if len(resolved) > maxInspectionPointerBytes {
+		return "", fmt.Errorf("resolved administrative pointer path exceeds limit: %w", ErrReadLimit)
+	}
+	return resolved, nil
 }
 
 func inspectionDirectoryInfo(ctx context.Context, directory string) (fs.FileInfo, error) {

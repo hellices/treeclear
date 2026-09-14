@@ -56,19 +56,40 @@ func TestReadInspectionPointerRefusesUnknownEvidence(test *testing.T) {
 func TestInspectionPointerPaths(test *testing.T) {
 	directory := readonlyIndexCanonicalTemporaryDirectory(test)
 	for _, value := range []string{"", "invalid\x00path", strings.Repeat("x", maxInspectionPointerBytes+1)} {
-		actual, err := inspectionPointerPath(directory, value)
+		actual, err := inspectionPointerPath(test.Context(), directory, value)
 		if err == nil || actual != "" || errors.Is(err, ErrWorktreeChanged) {
 			test.Fatalf("invalid pointer %q returned %q, error %v", value, actual, err)
 		}
 	}
-	for _, value := range []string{"../target/.git", filepath.Join(directory, "space target", ".git")} {
-		actual, err := inspectionPointerPath(directory, filepath.ToSlash(value))
-		want := value
-		if !filepath.IsAbs(value) {
-			want = filepath.Join(directory, value)
+	base := filepath.Join(directory, "nested")
+	for _, name := range []string{"nested", "target", "space target"} {
+		if err := os.Mkdir(filepath.Join(directory, name), 0o700); err != nil {
+			test.Fatal(err)
 		}
-		if err != nil || actual != want {
-			test.Fatalf("pointer %q resolved to %q, want %q, error %v", value, actual, want, err)
+		if err := os.WriteFile(filepath.Join(directory, name, ".git"), []byte("owned marker"), 0o600); err != nil {
+			test.Fatal(err)
 		}
+	}
+	for _, scenario := range []struct {
+		value string
+		want  string
+	}{
+		{"../target/.git", filepath.Join(directory, "target", ".git")},
+		{filepath.Join(directory, "space target", ".git"), filepath.Join(directory, "space target", ".git")},
+	} {
+		actual, err := inspectionPointerPath(test.Context(), base, filepath.ToSlash(scenario.value))
+		if err != nil || actual != scenario.want {
+			test.Fatalf("pointer %q resolved to %q, want %q, error %v", scenario.value, actual, scenario.want, err)
+		}
+		ctx, cancel := context.WithCancel(test.Context())
+		cancel()
+		actual, err = inspectionPointerPath(ctx, base, scenario.value)
+		if !errors.Is(err, context.Canceled) || actual != "" {
+			test.Fatalf("canceled pointer resolved to %q, error %v", actual, err)
+		}
+	}
+	actual, err := inspectionPointerPath(test.Context(), base, "missing")
+	if !errors.Is(err, fs.ErrNotExist) || actual != "" {
+		test.Fatalf("missing pointer target resolved to %q, error %v", actual, err)
 	}
 }

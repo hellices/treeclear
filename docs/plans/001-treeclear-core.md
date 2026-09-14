@@ -2942,8 +2942,13 @@ Each collection performs the following bounded sequence:
    reciprocal `.git`/`gitdir` evidence for the selected native worktree root.
    Read these pointers through bounded, checked native handles before hashing,
    and recheck routing after inspection's Git reads. Resolve relative pointer
-   records against their owning directories; missing, malformed or conflicting
-   routing evidence does not authorize index/content reads.
+   records against their owning directories in filesystem traversal order,
+   before lexical normalization can remove a symlink/`..` component. Validate
+   Git's literal backlink `/.git` suffix before resolving its parent; an alias
+   file is not a substitute for that registration marker. Native-equivalent
+   terminal/intermediate directory aliases are allowed, while pointer-file
+   leaves remain nofollow. Missing, malformed or conflicting routing evidence
+   does not authorize index/content reads.
 3. Read `StatusSnapshot`; require agreement with the inspected status and its
    exact selected leaf count. Retain raw bytes and exact untracked paths.
 4. Read guarded staged and unstaged binary patches, administrative diagnostics,
@@ -3177,6 +3182,64 @@ The integrated corrective candidate passed `go test -count=1 ./...`
 were identical before and after this local Darwin matrix. Independent review
 and native Windows execution of the corrective implementation remain pending;
 this passing local matrix is not merge or release clearance.
+
+Corrective candidate `ca11055` passed both native platforms in CI
+`34843816976`, but independent routing review found an Important traversal
+error and a Minor alias regression. `filepath.Join`/`Clean` collapsed
+symlink/`..` before native resolution, allowing both static wrong-admin source
+captures and a persistent mid-read backlink change. A terminal directory alias
+to the same administrative target was also rejected while an intermediate
+alias worked. Native CI success did not override either finding.
+
+R6 durable native regressions reproduced both full-capture bypasses (1,563
+and 1,426 retained bytes in that local RED run), absolute/relative mid-read
+changes, and three rejected valid alias/traversal layouts. The fix preserves
+the raw relative base, resolves filesystem traversal with context and path
+bounds, and validates backlink marker syntax before resolving its directory.
+The nofollow pointer-file reader and its byte/type/identity/close safeguards
+are unchanged. The complete focused routing/inspection controls now pass
+(Git 16.950s); all three full-source refusal cases pass with zero output,
+preserved change category and unchanged borrowed-index evidence (snapshot
+5.314s). Fresh full-matrix, independent review and native CI evidence remain
+required for this new revision.
+
+The initial administrative-directory observation also retains the raw Lstat
+metadata instead of silently replacing it with opened-handle metadata. Native
+fixtures first reproduced eight lost-change assertions: mtime changes with
+close/cancellation combinations, a replacement that reached enumeration, and
+Unix identity/mode/size disagreements. The correction rejects observed
+mode/size/mtime differences and, on Unix, retained native-ID differences before
+returning the eager handle observation. Windows raw Lstat can load file IDs
+lazily from a later pathname, so it is not treated as an eagerly pinned original
+ID; its available metadata is checked and subsequent comparisons still use
+eager File.Stat identities. Identical-metadata replacement before the first
+Windows handle pin remains outside this finite-observation guarantee.
+
+Common-store characterization controls accept native-equivalent terminal and
+intermediate aliases and reject a persistent canonical-root substitution before
+hashes or index-reading commands. They pass on both the routing correction and
+unchanged `ca11055` production through a test-only overlay. Native Windows
+junction controls are included, not inferred from Unix symlink traversal.
+The requested raw-alias refusal still needs independent adjudication against
+the canonical architecture's platform-aware alias support; it is not silently
+accepted or dismissed because existing tests pass.
+
+The independent R6 task reviewer stopped with provider `cyber_policy` HTTP 422
+and produced no R6 verdict. No substitute approval, alternate-model retry or
+policy bypass is used. Local correction and native CI may proceed, but final
+independent task/whole-branch review and unresolved remote threads still block
+merge and progression to a dependent stage.
+
+The frozen R6 source passed `go test -count=1 ./...` (Git 34.731s, snapshot
+63.005s), `go test -race -count=1 ./...` (Git 42.872s, snapshot 104.574s),
+`go vet ./...`, and `go build ./...` on Go 1.26.5 darwin/arm64.
+`gofmt -l .` and `git diff --check` printed nothing. All tracked/untracked
+non-ignored source-file hashes were identical before and after the full matrix.
+The initial-observation close controls also require one successful real Close
+and an unusable handle, without assuming Windows reports `fs.ErrClosed`;
+opaque-error and no-op-close assertion REDs preceded that portable oracle.
+Native macOS/Windows CI on the published R6 tree remains pending, as does the
+blocked independent review. No merge or production acceptance is claimed.
 
 ### Remaining Task 8 lifecycle
 
