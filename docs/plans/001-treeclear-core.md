@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8D review and native verification
+- Status: In progress — Task 8E bounded untracked source reads
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,7 +12,7 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, #7, #8, and #9 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, and #10 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
@@ -22,8 +22,10 @@ snapshot-integrity foundation also passed independent review and native CI on
 both the final head and merge commit. Task 8B's guarded raw Git reads also
 passed independent review and native CI on the final head and merge commit.
 Task 8C's bounded administrative diagnostics also passed independent review
-and native macOS/Windows CI on the final head and merge commit. Task 8D adds
-a bounded in-memory untracked tar/gzip codec without collection or extraction.
+and native macOS/Windows CI on the final head and merge commit. Task 8D's
+bounded in-memory untracked tar/gzip codec also passed independent review and
+native macOS/Windows CI on the final head and merge commit. Task 8E adds bounded
+read-only collection of explicitly supplied source leaves and their parents.
 Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
@@ -2412,8 +2414,174 @@ The suite now contains 23 focused codec tests plus 24 bounded fuzz seeds. Every
 update still requires full local verification, independent re-review and native
 CI before merge.
 
-- [ ] Create a Task8D PR, repeat independent review until clean, and verify
+- [x] Create a Task8D PR, repeat independent review until clean, and verify
   native macOS/Windows CI on its final head before the authorized merge.
+- [x] Verify native macOS/Windows CI on the merge commit before the next slice.
+
+PR #10's final independent AI full-range review at `6140789` passed the spec
+and code-quality reviews with zero actionable findings. Copilot's final round
+also raised no concrete code finding, while recommending human review; neither
+automated review is human approval. Native macOS/Windows CI passed on the final
+head (run `34793061385`) and the authorized merge `74a9b65` (run `34794514333`).
+Reviewed-head ancestry and exact merged-tree equality were verified. No force
+push, protection bypass, release, branch/worktree removal or separate main
+checkout mutation was performed.
+
+### Task 8E execution slice: bounded untracked source reads
+
+This slice composes Task8D with a narrow native read-only source boundary. The
+caller supplies an already approved list of relative leaf paths; this primitive
+does not discover Git-untracked paths, decide ignore/sensitivity policy, or
+authenticate the selection. No snapshot publication, extraction or mutation
+command is exposed. The remaining Task8 lifecycle and Task9 stay pending.
+
+**Files:**
+- Create: `internal/snapshot/read_untracked.go`
+- Create: `internal/snapshot/read_untracked_selection.go`
+- Create: `internal/snapshot/read_untracked_data.go`
+- Create: `internal/snapshot/read_untracked_observation.go`
+- Create: focused `internal/snapshot/read_untracked*_test.go` fixtures
+- Create: `internal/snapshot/untracked_read_integration_test.go`
+- Create: `internal/snapshot/untracked_read_native_unix_test.go`
+- Create: `internal/snapshot/untracked_read_contract_test.go`
+
+**Interface:**
+
+```go
+func ReadUntracked(ctx context.Context, directory string, paths []string, maximumBytes int64) ([]UntrackedEntry, error)
+```
+
+Validate the entire request before source operations. Require an absolute root
+in the existing canonical lexical profile, at most 32 KiB of root text, and
+the codec's portable relative paths, 4,096-byte text cap and positive safely
+representable byte budget. Reject root/absolute/traversal names, `.git`
+components, aliases, duplicates and requested leaf ancestors in any input
+order. A requested directory is invalid; do not recursively enumerate it or
+read unrequested siblings. Precompute and bound the union of requested leaves
+and their required parent directories at 4,096 output entries before opening
+the root. Do not repeatedly clean or hash every full implicit prefix; a bounded
+component tree can reserve each distinct node before allocation. Copy input
+slices rather than sorting or changing the caller's request.
+
+Read regular-file bytes and supported link text, with original permission and
+special bits. Add required parents with their actual modes; do not add the root
+as an archive entry. Preserve supplied path spelling and original relative
+link text, returning sorted caller-owned codec-compatible entries. Unix links
+are read without dereferencing their targets and must satisfy the codec's
+lexical link profile; dangling/self links can be structurally valid. Windows
+reparse points, including symlinks/junctions, and native devices are explicitly
+unsupported in this slice and fail closed. Supporting selected Windows link
+tags requires a separately verified extension, not an assumed cross-build.
+
+Reuse Task8C's verified native opening primitives without weakening them:
+Unix nested roots use the terminal-dot guard, absolute roots retain the
+trailing-slash guard, and Windows root identity uses no-follow metadata
+handles. Hold rooted directory handles, compare opened objects with no-follow
+observations before consuming bytes, check files/links around reads, then
+revalidate every observed root/parent/leaf and the original root path before
+success. An empty request still validates and revalidates its root. Reject
+detected replacement, mode/time/size change, short/growing reads, unsupported
+metadata and inaccessible/missing objects with nil output. Close every acquired
+handle on every path; any exposed close failure invalidates the result.
+
+Bound aggregate regular-file bytes before allocation and during reads, with
+at most one extra growth-detection byte. Link text, names, entries and retained
+handles have their own bounds. The raw-byte budget is distinct from the
+codec's serialized tar/gzip budget and the future whole-snapshot budget; it is
+not an exact heap quota. Native resource limits may reject a valid request;
+do not raise process limits or fall back to unrooted reads. Check cancellation
+around operations and bounded reads; synchronous OS calls are not claimed
+preemptibly cancellable. Preserve native I/O/context causes. Use
+`ErrUntrackedInvalid` for request/profile/observed-state failures and
+`ErrUntrackedLimit` for capacity breaches. Go's hidden native close errors,
+including the pinned Unix `os.Root.Close` behavior, cannot be surfaced.
+
+These observations do not prove an atomic or coherent snapshot, native path-name
+authentication, mount/hard-link exclusion or immunity to same-user ABA/content
+changes with restored metadata. The reader does not silently filter `.env` or
+infer Git eligibility. Selection/sensitivity policy and plan-bound capture must
+be independently enforced before any future publication or cleanup.
+
+Harness assessment: existing ordinary Go tooling, `internal/testutil` isolated
+Git fixtures, rooted operation seams and handle-tracking patterns suffice.
+Add deterministic I/O/cancellation/replacement/limit tests and native Unix and
+Windows guards, not a custom gate framework, dependency or generated fixture.
+Keep every test in owned temporary directories; never use real workspaces,
+databases, scheduler jobs, process enumeration, or global cwd/environment/Git
+configuration changes. The inherited optional Task8A timed-fuzz timeout remains
+unexplained and unresolved.
+
+Execution evidence on September 14, 2026: the clean merged baseline passed
+before changes. The initial integration compilation failure was followed by
+intended assertion failures against an explicit unimplemented placeholder:
+two Git/codec/manifest integration tests, request/capacity/context contracts,
+and five injected I/O boundaries. Production followed those observed failures.
+The subsequent expanded fault matrix, Windows fixture-identity controls and
+empty-input/file coverage first ran GREEN; they are additional coverage, not
+additional RED evidence. Windows fixture identity now comes from an open
+handle's `File.Stat`, with the close checked, rather than deferred pathname
+identity lookup. This source-driven fixture correction is not a claimed
+native Windows failure or fix verification.
+
+The fresh local Go 1.26.5 darwin/arm64 runs passed `go test -count=1 ./...`,
+`go test -race -count=1 ./...`, `go vet ./...` and `go build ./...`.
+`gofmt -l .` and `git diff --check` printed nothing. A separate focused JSON
+run passed 21 reader top-level tests and 109 subtests, with no failures or
+skips; subtest counts include table containers. All artifacts remain local.
+Native Windows and Linux execution, native CI, independent review and merge
+verification remain pending at this execution checkpoint. The Windows
+symlink fixtures explicitly skip only when the native runner lacks symlink
+creation privilege; a cross-build would not establish native behavior.
+
+The first native CI run (`34796863194`, implementation head `2ae302a`) failed
+two Windows root-replacement fixture cases: `post-read` and `later-file`.
+The fixture attempted to rename the root while the reader retained its opened
+`nested` directory; native rename returned access denied before the intended
+identity replacement. Windows root-replacement cases now select files directly
+under the root, avoiding an opened descendant directory while retaining the
+same pre/post-open, completed-read and later-file boundaries, mandatory actual
+identity change, metadata equivalence, nil-result and handle-close assertions.
+Unix still exercises the original nested-root layout. No case is skipped and
+no production guard or existing helper is changed. Native verification of this
+fixture correction was pending at that implementation checkpoint.
+
+Corrected head `39292b3` passed native macOS/Windows CI run `34797241711`.
+Independent review then identified a distinct test-oracle gap: the Windows
+attribute-injection wrappers can be rejected by `os.SameFile` regardless of
+their flags, masking omission of the new reader's native validator call.
+Direct `validateUntrackedReadInfo` tests now use both native and wrapped safe
+controls, plus reparse/device/combined/unavailable attributes while preserving
+the same valid ordinary mode and size. No identity comparison can satisfy
+these assertions. The original end-to-end no-byte/close checks are retained.
+At that review checkpoint, native verification and independent re-review of
+these controls were pending; no Windows guard-bypass experiment had run.
+
+Subsequent native CI run `34798452057` on `ac06db5` passed both platforms,
+including the direct Windows validator controls. A one-off Windows
+`go test -overlay` diagnostic omitted only the native guard in a temporary
+copy: all four unsafe-attribute cases failed, while the safe wrapped control
+passed. The diagnostic required those exact outcomes and did not modify the
+checked-out source. This is observed native counterfactual evidence, rather
+than a source-only inference. Its temporary workflow step is removed before
+merge; the ordinary CI workflow is restored, with no persistent custom gate.
+The reader and test sources are unchanged by that removal. Native macOS/Windows
+CI run `34798947080` passed on `b4690cd`. Independent AI task/spec and separate
+whole-branch integration re-reviews of that revision also completed with no
+actionable findings; these are not human approval. A later Copilot review
+identified the stale verification-status wording corrected in this record.
+Every subsequent revision must receive exact-head native macOS/Windows CI and
+independent re-review, with all review bodies and threads checked, before the
+authorized merge. Merge-commit native verification remains a separate
+prerequisite for advancing to the next slice.
+
+- [x] Verify the clean merged baseline and assess the existing harness.
+- [x] Observe failing integration, request, capacity, context and sentinel-I/O
+  assertions before implementation, then expand deterministic fault coverage.
+- [x] Implement the bounded explicit-path reader and native fail-closed policy.
+- [x] Verify codec/manifest composition, source preservation, native modes/links
+  and no unrequested traversal; run all required local Go/hygiene commands.
+- [ ] Open a scoped PR, repeat independent review until clean, and verify native
+  macOS/Windows CI on the exact final head before the authorized merge.
 - [ ] Verify native macOS/Windows CI on the merge commit before the next slice.
 
 ### Remaining Task 8 lifecycle
