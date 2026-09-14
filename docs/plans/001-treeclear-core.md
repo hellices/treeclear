@@ -3259,6 +3259,24 @@ positions. No toolchain, GODEBUG setting, fixture skip, or production relaxation
 is used. Native product assertion RED must be observed before correcting the
 Windows pointer resolver; this checkpoint is not merge-ready.
 
+Checkpoint `e584e2e`, tree `6b6cae33fa23b4e50e912377830025d25374821b`,
+passed macOS CI `34850675274`. Windows produced two genuine pointer-resolution
+assertion failures, plus two separate Git fixture-precondition failures; the
+latter are not counted as product RED. Checkout
+`e75cf9efd5d5da8562c0531654d7b69e963ed117` has that exact tree and parents
+`d27094e`/`e584e2e`. Native handles identified the intended junction targets,
+but Git rejected the administrative-alias layout before the inspection call.
+
+The next controlled fixture records the verified common directory explicitly
+instead of depending on the alias's lexical parent for relative `commondir`.
+It still requires ordinary Git inspection, native alias identity, and actual
+Git directory selection before product assertions; no unexpected Git error is
+accepted as a passing fixture or a skip. Direct tests cover both pointer and
+Git-output canonicalization. Separately, a local assertion RED for malformed
+UTF-8 pointer input precedes explicit encoding validation (focused GREEN
+0.408s), preventing lossy native encoding conversion. Native directory
+resolution remains unchanged in this checkpoint and still needs correction.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

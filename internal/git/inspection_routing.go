@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hellices/treeclear/internal/domain"
 )
@@ -113,7 +114,7 @@ func inspectionPointerPath(ctx context.Context, directory, value string) (string
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if value == "" || strings.IndexByte(value, 0) >= 0 {
+	if value == "" || !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
 		return "", fmt.Errorf("invalid administrative pointer: %w", fs.ErrInvalid)
 	}
 	value = filepath.FromSlash(value)

@@ -93,3 +93,14 @@ func TestInspectionPointerPaths(test *testing.T) {
 		test.Fatalf("missing pointer target resolved to %q, error %v", actual, err)
 	}
 }
+
+func TestInspectionPointerPathsRejectInvalidEncoding(test *testing.T) {
+	directory := readonlyIndexCanonicalTemporaryDirectory(test)
+	if err := os.Mkdir(filepath.Join(directory, "target\ufffd"), 0o700); err != nil {
+		test.Fatal(err)
+	}
+	actual, err := inspectionPointerPath(test.Context(), directory, "target\xff")
+	if !errors.Is(err, fs.ErrInvalid) || actual != "" {
+		test.Fatalf("invalid encoded pointer was resolved or not rejected as invalid: %q, %v", actual, err)
+	}
+}

@@ -30,6 +30,13 @@ func TestClientInspectAllowsWindowsAdministrativeDirectoryAliases(test *testing.
 			if err != nil || !known.GitStateKnown || !known.PathSafe || known.IndexHash == "" || known.AdminHash == "" {
 				test.Fatalf("ordinary registration precondition: %#v, %v", known, err)
 			}
+			if err := os.WriteFile(filepath.Join(known.AdminDir, "commondir"), []byte(filepath.ToSlash(known.CommonGitDir)+"\n"), 0o600); err != nil {
+				test.Fatal(err)
+			}
+			known, err = client.InspectWorktree(ctx, repository.Root, record)
+			if err != nil || !known.GitStateKnown || !known.PathSafe || known.IndexHash == "" || known.AdminHash == "" {
+				test.Fatalf("explicit common-store registration precondition: %#v, %v", known, err)
+			}
 			before := readonlyIndexEvidence(test, known.AdminDir)
 			defer func() { assertReadonlyIndexEvidence(test, before, readonlyIndexEvidence(test, known.AdminDir)) }()
 			administrative := inspectionRoutingWindowsDirectoryIdentity(test, known.AdminDir)
@@ -109,7 +116,17 @@ func TestInspectionPointerPathsWindowsJunctions(test *testing.T) {
 			}
 			actual, err := inspectionPointerPath(test.Context(), ownedRoot, pointer)
 			if err != nil || !strings.EqualFold(actual, target) || !os.SameFile(expected, inspectionRoutingWindowsDirectoryIdentity(test, actual)) {
-				test.Fatalf("pointer did not resolve the native target: actual=%q expected=%q error=%v", actual, target, err)
+				test.Errorf("pointer did not resolve the native target: actual=%q expected=%q error=%v", actual, target, err)
+			}
+			client := NewClient(runnerFunc(func(_ context.Context, request execx.Request) (execx.Result, error) {
+				if !slices.Equal(request.Args, []string{"rev-parse", "--absolute-git-dir"}) {
+					test.Fatalf("unexpected directory lookup: %q", request.Args)
+				}
+				return execx.Result{Stdout: []byte(filepath.ToSlash(pointer) + "\n")}, nil
+			}))
+			actual, err = client.gitDirectory(test.Context(), ownedRoot, "--absolute-git-dir")
+			if err != nil || !strings.EqualFold(actual, target) || !os.SameFile(expected, inspectionRoutingWindowsDirectoryIdentity(test, actual)) {
+				test.Errorf("Git-reported directory did not resolve the native target: actual=%q expected=%q error=%v", actual, target, err)
 			}
 		})
 	}
