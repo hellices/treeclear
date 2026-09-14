@@ -216,21 +216,15 @@ func (client *Client) Status(ctx context.Context, worktree string) (domain.GitSt
 }
 
 func (client *Client) StatusRaw(ctx context.Context, worktree string) (domain.GitStatus, []byte, error) {
-	if err := client.rejectExecutableFilters(ctx, worktree); err != nil {
-		return domain.GitStatus{}, nil, err
-	}
-	if err := client.rejectUnsafeIndex(ctx, worktree); err != nil {
-		return domain.GitStatus{}, nil, err
-	}
-	result, err := client.run(ctx, worktree, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none")
+	contents, err := client.readStatusRaw(ctx, worktree)
 	if err != nil {
 		return domain.GitStatus{}, nil, err
 	}
-	status, err := parseStatusPorcelainZ(result.Stdout)
+	status, err := parseStatusPorcelainZ(contents)
 	if err != nil {
 		return domain.GitStatus{}, nil, err
 	}
-	return status, result.Stdout, nil
+	return status, contents, nil
 }
 
 func (client *Client) Diff(ctx context.Context, worktree string, staged bool) ([]byte, error) {

@@ -13,6 +13,7 @@ func FuzzParseStatusPorcelainZ(fuzz *testing.F) {
 		"", "? new\n\xff name \x00", "! ignored\x00", "? earlier\x00broken\x00",
 		"1 M. N... 100644 100644 100644 " + objectID + " " + objectID + " file\x00",
 		"2 R. N... 100644 100644 100644 " + objectID + " " + objectID + " R100 new\x00old\x00",
+		"2 C. N... 100644 100644 100644 " + objectID + " " + objectID + " C100 new\x00? source\x00? genuine\x00",
 		"u UU N... 100644 100644 100644 100644 " + objectID + " " + objectID + " " + objectID + " file\x00",
 	} {
 		fuzz.Add([]byte(input))
@@ -21,6 +22,17 @@ func FuzzParseStatusPorcelainZ(fuzz *testing.F) {
 		status, err := parseStatusPorcelainZ(contents)
 		if err != nil && status != (domain.GitStatus{}) {
 			test.Fatalf("failed status parse returned partial counts: %#v, %v", status, err)
+		}
+		selectedStatus, paths, selectedErr := parseStatusPorcelainZPaths(contents, true)
+		if selectedErr != nil && (selectedStatus != (domain.GitStatus{}) || paths != nil) {
+			test.Fatalf("failed selection returned partial counts/paths: %#v, %d, %v", selectedStatus, len(paths), selectedErr)
+		}
+		if err != nil || status.Untracked > 4096 {
+			if selectedErr == nil {
+				test.Fatal("selection accepted malformed or over-limit status")
+			}
+		} else if selectedErr != nil || selectedStatus != status || len(paths) != status.Untracked {
+			test.Fatalf("selection disagrees with legacy summary: %#v, %d paths, %v; legacy %#v", selectedStatus, len(paths), selectedErr, status)
 		}
 	})
 }

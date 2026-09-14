@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8E bounded untracked source reads
+- Status: In progress — Task 8F exact status-derived untracked paths
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,7 +12,7 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, and #10 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, and #11 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
@@ -24,8 +24,11 @@ passed independent review and native CI on the final head and merge commit.
 Task 8C's bounded administrative diagnostics also passed independent review
 and native macOS/Windows CI on the final head and merge commit. Task 8D's
 bounded in-memory untracked tar/gzip codec also passed independent review and
-native macOS/Windows CI on the final head and merge commit. Task 8E adds bounded
-read-only collection of explicitly supplied source leaves and their parents.
+native macOS/Windows CI on the final head and merge commit. Task 8E's bounded
+read-only collection of explicitly supplied source leaves and their parents
+also passed independent review and native CI on the final head and merge
+commit. Task 8F connects exact untracked paths to their guarded status
+observation without changing legacy inventory summaries.
 Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
@@ -2580,9 +2583,123 @@ prerequisite for advancing to the next slice.
 - [x] Implement the bounded explicit-path reader and native fail-closed policy.
 - [x] Verify codec/manifest composition, source preservation, native modes/links
   and no unrequested traversal; run all required local Go/hygiene commands.
-- [ ] Open a scoped PR, repeat independent review until clean, and verify native
+- [x] Open a scoped PR, repeat independent review until clean, and verify native
   macOS/Windows CI on the exact final head before the authorized merge.
-- [ ] Verify native macOS/Windows CI on the merge commit before the next slice.
+- [x] Verify native macOS/Windows CI on the merge commit before the next slice.
+
+Task8E closure: PR #11 merged as `1586faab130efaf76f5f60bd6aacdabe8b76929e`
+from reviewed head `98bb54c62458c2bf7a2bc56bd461907e2a9e82e7`. Both independent
+AI task/spec and whole-branch reviews report no actionable findings at that
+head; their separate CI addenda verify native run `34800086018`. Copilot's
+final review produced no new inline comments; its human-review recommendation
+is retained without claiming human approval. The stale plan-status thread
+was fixed, answered with revision-bound evidence and resolved. The expected
+merge parents, reviewed-head ancestry and complete tree equality were checked.
+Native push/main CI `34800623095` passed macOS and Windows at the actual merge
+commit, including normal/race tests, vet, build, formatting and unchanged-source
+checks. Raw reports and logs remain local. All prior limitations remain,
+including the unexplained optional Task8A timed-fuzz timeout.
+
+### Task 8F: Exact status-derived untracked paths (scoped slice)
+
+This slice supplies the explicit Git selection needed by Task8E. Prefer one
+shared status observation over a second `ls-files --others` payload command or
+ad-hoc record splitting in snapshot code. A rename/copy source is a separate
+NUL-delimited path and may itself look like an untracked record; it must not
+be mistaken for another entry. The existing strict parser remains authoritative.
+
+**Files:**
+- Create: `internal/git/status_snapshot.go`
+- Modify: `internal/git/client.go`
+- Modify: `internal/git/status_porcelain.go`
+- Test: `internal/git/status_paths_test.go`
+- Test: `internal/git/status_snapshot_test.go`
+- Test: `internal/git/status_snapshot_integration_test.go`
+- Modify: `internal/git/porcelain_fuzz_test.go`
+- Test: `internal/snapshot/status_selection_integration_test.go`
+
+**Interface:**
+
+```go
+type StatusSnapshot struct {
+	Status         domain.GitStatus
+	Raw            []byte
+	UntrackedPaths []string
+}
+
+func (client *Client) StatusSnapshot(ctx context.Context, worktree string) (StatusSnapshot, error)
+```
+
+The new API first reuses the existing effective-worktree-root check, rejecting
+subdirectories and conflicting configured roots before collecting repository-
+relative path evidence. This is one guarded read-only `rev-parse`, not another
+status observation. Then reuse the same executable-filter and unsafe-index
+guards and exactly one `status --porcelain=v2 -z --untracked-files=all
+--ignore-submodules=none` invocation, with the existing environment, timeout
+and 16 MiB per-command output budget. Root validation is a point-in-time
+observation, not atomic source binding or pathname authentication.
+
+Return the summary, unchanged raw bytes and only genuine `?` record paths from
+that single payload. Preserve exact spelling, arbitrary path bytes and encounter
+order; exclude tracked, ignored and rename/copy-source records. Do not sort,
+deduplicate, normalize or silently apply sensitivity/portable-name filtering.
+The new result owns its raw byte buffer and path slice; caller changes must
+not affect another observation, retained runner output or another result field.
+
+The retained-path mode accepts at most 4096 untracked records and fails closed
+above that limit. Consume NUL records incrementally rather than allocating a
+slice of every raw record before enforcing this bound. Legacy `Status`,
+`StatusRaw` and the summary-only parser stay
+source-compatible, retain their command guards and valid summary behavior,
+and neither inherit the new root restriction/path-count limit nor allocate a
+retained path slice. Share the strict parser and guarded status command path,
+not a second parser. Any root/guard/command/framing/metadata/capacity error or
+observed cancellation returns the complete zero result, preserving I/O and
+context causes rather than exposing a partial summary, raw payload or selection.
+
+Harness assessment: existing fake `execx.Runner` boundaries, strict parser
+fixtures, `internal/testutil` temporary repositories and the normal Go/native
+CI commands suffice. Add deterministic path/capacity/ownership/failure tests
+and native Git-to-reader composition; no dependency, custom gate, new global
+test state, real workspace/database/scheduler fixture or process enumeration.
+
+- [x] Write and observe failing tests for exact path extraction, rename/copy
+  source framing, late parse failures, zero-on-error/context, command guards,
+  root mismatch, 4096/4097 boundaries, legacy compatibility and ownership.
+- [x] Add isolated native Git fixtures for ignored/nested/untracked versus
+  staged/unstaged/renamed paths, source/index preservation, root rejection,
+  and composition with `ReadUntracked` and the existing archive codec.
+- [x] Implement the shared parser/command path and narrow new result API.
+- [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
+  `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
+- [ ] Open a scoped PR, repeat independent reviews until no actionable
+  findings, check complete remote review bodies/threads and require native
+  macOS/Windows CI on the exact final head before the authorized merge.
+- [ ] Verify reviewed-head ancestry/tree identity and native macOS/Windows
+  CI on the actual merge commit before advancing to another slice.
+
+This API yields Git path evidence, not snapshot eligibility or a coherent
+capture. Task8E still enforces its stricter portable paths, alias rules and
+leaf-plus-parent capacity; 4096 leaves need not fit that component-tree limit.
+Sensitivity policy, plan-bound revalidation, whole-snapshot budgeting,
+publication, recovery refs, restore and all cleanup remain pending. Standard
+fuzz seed tests do not resolve or diagnose Task8A's optional timed-fuzz timeout.
+
+At the Task8F implementation checkpoint, an initial missing-API compile failure
+was followed by assertion RED against explicit zero-result/selection stubs.
+Path spelling/selection, capacity, command/guard failures, ownership, root I/O
+and cancellation controls failed for the intended missing behavior; existing
+legacy summaries and malformed-metadata rejection were already green. Separate
+native macOS fixtures also reached six intended failing leaf invocations before
+the new API was implemented. Their downstream reader/codec/source-preservation
+assertions were subsequently exercised in the successful focused GREEN run.
+
+Fresh Go 1.26.5 darwin/arm64 full tests passed (Git 13.166s, snapshot 10.502s),
+as did the full race suite (Git 14.104s, snapshot 29.922s), vet and build.
+Formatting and whitespace checks printed nothing. No native local Windows or
+Linux execution or timed fuzz run is claimed. Keep subsequent CI/review results
+bound to their actual revisions in the PR record; a historical checkpoint does
+not waive exact-final-head or actual-merge-commit verification.
 
 ### Remaining Task 8 lifecycle
 

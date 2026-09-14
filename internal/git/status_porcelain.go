@@ -9,22 +9,37 @@ import (
 	"github.com/hellices/treeclear/internal/domain"
 )
 
+const maxStatusUntrackedPaths = 4096
+
 func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
+	status, _, err := parseStatusPorcelainZPaths(contents, false)
+	return status, err
+}
+
+func parseStatusPorcelainZPaths(contents []byte, collectUntracked bool) (domain.GitStatus, []string, error) {
 	status := domain.GitStatus{}
+	var untrackedPaths []string
 	if len(contents) == 0 {
-		return status, nil
+		return status, nil, nil
 	}
 	if contents[len(contents)-1] != 0 {
-		return status, errors.New("Git status is missing a NUL terminator")
+		return status, nil, errors.New("Git status is missing a NUL terminator")
 	}
-	records := strings.Split(string(contents[:len(contents)-1]), "\x00")
-	for index := 0; index < len(records); index++ {
-		record := records[index]
+	remaining := string(contents)
+	for remaining != "" {
+		record, rest, _ := strings.Cut(remaining, "\x00")
+		remaining = rest
 		if len(record) < 3 || record[1] != ' ' {
-			return domain.GitStatus{}, fmt.Errorf("invalid Git status record %q", record)
+			return domain.GitStatus{}, nil, fmt.Errorf("invalid Git status record %q", record)
 		}
 		switch record[0] {
 		case '?':
+			if collectUntracked {
+				if len(untrackedPaths) == maxStatusUntrackedPaths {
+					return domain.GitStatus{}, nil, errors.New("Git status untracked path count exceeds limit")
+				}
+				untrackedPaths = append(untrackedPaths, record[2:])
+			}
 			status.Untracked++
 		case '!':
 		case '1', '2', 'u':
@@ -36,10 +51,10 @@ func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
 			}
 			fields := strings.SplitN(record, " ", fieldCount)
 			if len(fields) != fieldCount || fields[fieldCount-1] == "" || !validStatusCode(record[0], fields[1]) || !validSubmoduleCode(fields[2]) {
-				return domain.GitStatus{}, fmt.Errorf("malformed Git status record %q", record)
+				return domain.GitStatus{}, nil, fmt.Errorf("malformed Git status record %q", record)
 			}
 			if fields[1] == ".." && (fields[2] == "N..." || fields[2] == "S...") {
-				return domain.GitStatus{}, errors.New("Git status record has no changes")
+				return domain.GitStatus{}, nil, errors.New("Git status record has no changes")
 			}
 			modeEnd, objectIDEnd := 6, 8
 			if record[0] == 'u' {
@@ -48,23 +63,24 @@ func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
 			for fieldIndex := 3; fieldIndex < modeEnd; fieldIndex++ {
 				mode := fields[fieldIndex]
 				if !validPorcelainMode(mode, fieldIndex == modeEnd-1) {
-					return domain.GitStatus{}, fmt.Errorf("invalid Git status mode %q", mode)
+					return domain.GitStatus{}, nil, fmt.Errorf("invalid Git status mode %q", mode)
 				}
 			}
 			objectIDWidth := len(fields[modeEnd])
 			for _, objectID := range fields[modeEnd:objectIDEnd] {
 				if !validPorcelainObjectID(objectID) || len(objectID) != objectIDWidth {
-					return domain.GitStatus{}, fmt.Errorf("invalid Git status object ID %q", objectID)
+					return domain.GitStatus{}, nil, fmt.Errorf("invalid Git status object ID %q", objectID)
 				}
 			}
 			if record[0] == '2' {
 				if !validRenameScore(fields[1], fields[8]) {
-					return domain.GitStatus{}, errors.New("invalid Git rename score")
+					return domain.GitStatus{}, nil, errors.New("invalid Git rename score")
 				}
-				if index+1 >= len(records) || records[index+1] == "" {
-					return domain.GitStatus{}, errors.New("incomplete Git rename record")
+				sourcePath, rest, terminated := strings.Cut(remaining, "\x00")
+				if !terminated || sourcePath == "" {
+					return domain.GitStatus{}, nil, errors.New("incomplete Git rename record")
 				}
-				index++
+				remaining = rest
 			}
 			if record[0] == 'u' {
 				status.Unmerged++
@@ -77,10 +93,10 @@ func parseStatusPorcelainZ(contents []byte) (domain.GitStatus, error) {
 				status.Unstaged++
 			}
 		default:
-			return domain.GitStatus{}, fmt.Errorf("unknown Git status prefix %q", record[:1])
+			return domain.GitStatus{}, nil, fmt.Errorf("unknown Git status prefix %q", record[:1])
 		}
 	}
-	return status, nil
+	return status, untrackedPaths, nil
 }
 
 func validStatusCode(kind byte, code string) bool {
