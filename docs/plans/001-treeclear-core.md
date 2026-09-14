@@ -3094,6 +3094,19 @@ helper also now uses handle-based observations; its pre-fix lifetime regression
 passed on Darwin, so no native Windows pre-fix RED is claimed. Independent R3
 re-reviews and exact-head/actual-merge native CI remain required before advancing.
 
+R3 head `aea68df2c0c80a5908bf9281f7262fcbaf16cb85` passed macOS CI, but run
+`34838070056` failed 16 Windows fault-fixture assertions: `File.Stat` on an
+already closed handle reports `ERROR_INVALID_HANDLE`, not `fs.ErrClosed`.
+The source snapshot suite passed on Windows (51.074s); its race/build steps
+were not reached. The corrected test requires exactly one successful native
+`Close` and an unusable post-close handle without assuming a platform-specific
+`Stat` error. Production behavior is unchanged. A local overlay omitting the
+close still fails the corrected assertion (0.478s); unmodified production
+passes the focused fixture (0.491s). The renewed full normal/race matrices
+pass (snapshot 33.995s/59.198s), as do vet/build, empty formatting/diff checks
+and unchanged Go/module hashes. Final-revision independent review and native
+macOS/Windows CI remain required; the failed run is not treated as acceptance.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

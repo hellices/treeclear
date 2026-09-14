@@ -74,17 +74,19 @@ func TestReadonlyIndexDirectoryPreservesFailures(test *testing.T) {
 					return file.Readdirnames(limit)
 				}
 				closeCalls := 0
+				var nativeCloseErr error
 				operations.close = func(file *os.File) error {
 					closeCalls++
-					return errors.Join(file.Close(), fail("close"))
+					nativeCloseErr = file.Close()
+					return errors.Join(nativeCloseErr, fail("close"))
 				}
 				err := rejectSplitIndexDirectory(ctx, directory, operations)
 				if !errors.Is(err, cause) || canceled && !errors.Is(err, context.Canceled) || errors.Is(err, errors.ErrUnsupported) {
 					test.Errorf("failure error = %v; want preserved cause/cancellation, not unsupported", err)
 				}
 				if opened != nil {
-					if _, err := opened.Stat(); !errors.Is(err, fs.ErrClosed) || closeCalls != 1 {
-						test.Errorf("directory handle closed %d times, stat error %v", closeCalls, err)
+					if _, err := opened.Stat(); err == nil || closeCalls != 1 || nativeCloseErr != nil {
+						test.Errorf("directory handle closed %d times, native close error %v, stat error %v", closeCalls, nativeCloseErr, err)
 					}
 				} else if closeCalls != 0 {
 					test.Errorf("unopened directory closed %d times", closeCalls)
