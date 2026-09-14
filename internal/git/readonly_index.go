@@ -180,13 +180,6 @@ func readonlyIndexRootInfo(ctx context.Context, directory string, operations rea
 	return information, nil
 }
 
-func validateReadNativeInfo(information fs.FileInfo) error {
-	if information == nil || information.Sys() == nil {
-		return fmt.Errorf("native file metadata is unavailable: %w", fs.ErrInvalid)
-	}
-	return nil
-}
-
 func validateReadonlyIndexDirectoryPath(directory string) error {
 	if !filepath.IsAbs(directory) || strings.IndexByte(directory, 0) >= 0 {
 		return fmt.Errorf("invalid Git administrative directory path: %w", fs.ErrInvalid)

@@ -67,6 +67,66 @@ func TestClientInspectRejectsEffectiveCommonConflict(test *testing.T) {
 	}
 }
 
+func TestClientInspectRejectsSameStoreAdministrativeMisrouting(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	target := repository.AddWorktree(test, "registered-target", "topic/target")
+	other := repository.AddWorktree(test, "registered-other", "topic/other")
+	for _, worktree := range []string{target, other} {
+		repository.Git(test, "-C", worktree, "checkout", "--detach", "HEAD")
+	}
+	client := NewClient(nil)
+	record := inspectionIdentityRecord(test, client, repository.Root, target)
+	control, err := client.InspectWorktree(test.Context(), repository.Root, record)
+	if err != nil || !control.GitStateKnown {
+		test.Fatalf("legitimate detached registration: %v", err)
+	}
+	otherAdmin := repository.Git(test, "-C", other, "rev-parse", "--absolute-git-dir")
+	if err := os.WriteFile(filepath.Join(target, ".git"), []byte("gitdir: "+otherAdmin+"\n"), 0o600); err != nil {
+		test.Fatal(err)
+	}
+	repository.Git(test, "-C", target, "update-index", "--refresh")
+	before := readonlyIndexEvidence(test, otherAdmin)
+	defer func() { assertReadonlyIndexEvidence(test, before, readonlyIndexEvidence(test, otherAdmin)) }()
+	indexCommands := 0
+	client = NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+		if slices.Contains([]string{"ls-files", "status", "diff"}, request.Args[0]) {
+			indexCommands++
+		}
+		return (execx.OSRunner{}).Run(ctx, request)
+	}))
+	record = inspectionIdentityRecord(test, client, repository.Root, target)
+	actual, err := client.InspectWorktree(test.Context(), repository.Root, record)
+	if !errors.Is(err, ErrWorktreeChanged) || actual.GitStateKnown || actual.PathSafe || actual.IndexHash != "" || actual.AdminHash != "" || indexCommands != 0 {
+		test.Fatalf("same-store administrative conflict was trusted or read: known=%t safe=%t indexReads=%d admin=%q error=%v", actual.GitStateKnown, actual.PathSafe, indexCommands, actual.AdminDir, err)
+	}
+}
+
+func TestClientInspectRechecksAdministrativeRoutingAfterReads(test *testing.T) {
+	repository := testutil.NewRepository(test)
+	target := repository.AddWorktree(test, "routing-change-target", "topic/target")
+	other := repository.AddWorktree(test, "routing-change-other", "topic/other")
+	for _, worktree := range []string{target, other} {
+		repository.Git(test, "-C", worktree, "checkout", "--detach", "HEAD")
+	}
+	record := inspectionIdentityRecord(test, NewClient(nil), repository.Root, target)
+	otherAdmin := repository.Git(test, "-C", other, "rev-parse", "--absolute-git-dir")
+	changed := false
+	client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
+		result, err := (execx.OSRunner{}).Run(ctx, request)
+		if err == nil && request.Args[0] == "status" {
+			if err := os.WriteFile(filepath.Join(target, ".git"), []byte("gitdir: "+filepath.ToSlash(otherAdmin)+"\n"), 0o600); err != nil {
+				test.Fatal(err)
+			}
+			changed = true
+		}
+		return result, err
+	}))
+	actual, err := client.InspectWorktree(test.Context(), repository.Root, record)
+	if !changed || !errors.Is(err, ErrWorktreeChanged) || actual.GitStateKnown || actual.PathSafe {
+		test.Fatalf("persistent mid-inspection routing change was trusted: changed=%t known=%t safe=%t error=%v", changed, actual.GitStateKnown, actual.PathSafe, err)
+	}
+}
+
 func TestClientInspectClassifiesKnownStateChanges(test *testing.T) {
 	for _, scenario := range []string{"head", "branch", "detach", "attach"} {
 		test.Run(scenario, func(test *testing.T) {

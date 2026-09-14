@@ -336,10 +336,9 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 	}
 	record("administrative directory", err)
 	if worktree.AdminDir != "" && commonDirectory != "" {
-		relative, relErr := filepath.Rel(commonDirectory, worktree.AdminDir)
-		if relErr != nil || !filepath.IsLocal(relative) {
+		if err := verifyInspectionRouting(ctx, worktree); err != nil {
 			worktree.PathSafe = false
-			record("administrative directory", fmt.Errorf("%w: metadata is outside the repository common directory", ErrWorktreeChanged))
+			record("administrative routing", err)
 		} else {
 			if err := rejectSplitIndexDirectory(ctx, worktree.AdminDir, defaultReadonlyIndexOperations()); err != nil {
 				record("read-only index preflight", err)
@@ -402,6 +401,12 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 			record("commit time", errors.New("invalid commit timestamp"))
 		} else {
 			worktree.LastCommitAt = time.Unix(seconds, 0).UTC()
+		}
+	}
+	if len(failures) == 0 {
+		if err := verifyInspectionRouting(ctx, worktree); err != nil {
+			worktree.PathSafe = false
+			record("administrative routing recheck", err)
 		}
 	}
 	worktree.GitStateKnown = len(failures) == 0

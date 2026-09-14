@@ -2937,6 +2937,13 @@ Each collection performs the following bounded sequence:
    fresh inspection. Resolve the target's effective common Git directory and
    verify its native identity against the primary common store before any
    index/content reads. Native aliases are not physically distinct stores.
+   Bind primary administrative identity to that common store; a linked
+   administrative directory must be an immediate worktree registration with
+   reciprocal `.git`/`gitdir` evidence for the selected native worktree root.
+   Read these pointers through bounded, checked native handles before hashing,
+   and recheck routing after inspection's Git reads. Resolve relative pointer
+   records against their owning directories; missing, malformed or conflicting
+   routing evidence does not authorize index/content reads.
 3. Read `StatusSnapshot`; require agreement with the inspected status and its
    exact selected leaf count. Retain raw bytes and exact untracked paths.
 4. Read guarded staged and unstaged binary patches, administrative diagnostics,
@@ -3135,6 +3142,41 @@ routing, Windows correction, exact-final-tree independent re-review, both
 native CI platforms, remote-thread disposition and actual-merge verification
 remain pending. No source publication, cleanup or release is authorized by
 this checkpoint's test results.
+
+Checkpoint `43020de`, tree `94ab02ac00acffd3b11cc8cf849b3dd3a1644a43`, passed
+the complete local Go matrix from an owned `git archive` export with identical
+Go/module hashes. Native CI `34842184006` passed macOS and failed exactly ten
+Windows attribute/shape leaf cases, on Go 1.26.5. Its checkout
+`5ac85f385c36eb78acf8cdb8fe065e27b4f21efd` has that exact tree and parents
+`d27094e` and `43020de`. This is actual Windows assertion RED, not inferred
+from a cross-build, and the failed run is not acceptance.
+
+The follow-up keeps the Windows regressions unchanged and validates a nonnil
+native attribute structure, rejecting REPARSE/DEVICE bits before guarded
+opens/enumeration and identity comparisons. Missing or wrong native evidence
+is invalid, not an observed worktree change. Local scoped tests and race
+controls pass (3.110s/4.325s); native Windows GREEN still requires new CI.
+
+Administrative routing now checks primary/common and linked-registration
+native identities and both pointer directions before hashes and after Git
+reads. The pointer reader retains native handles, bounds content to 32 KiB,
+checks native types and observations, and preserves read/close/cancellation
+failures. Native tests reproduced same-store misrouting, six malformed or
+unregistered layouts, and a persistent mid-inspection routing change before
+the fix. Those eight rejection cases and three relative-pointer controls now
+pass (5.118s); the broader routing/inspection controls pass (10.910s).
+Additional source-capacity controls cover both initial metadata size and
+streaming growth, exact/overflow directory counts and complete legacy status
+summaries. These changes still require independent corrective review and
+exact-final-tree native CI; no cleanup, publication or release is complete.
+
+The integrated corrective candidate passed `go test -count=1 ./...`
+(Git 24.088s, snapshot 47.070s), `go test -race -count=1 ./...`
+(Git 30.803s, snapshot 77.055s), `go vet ./...` and `go build ./...`.
+`gofmt -l .` and `git diff --check` printed nothing. Go/module source hashes
+were identical before and after this local Darwin matrix. Independent review
+and native Windows execution of the corrective implementation remain pending;
+this passing local matrix is not merge or release clearance.
 
 ### Remaining Task 8 lifecycle
 
