@@ -40,6 +40,44 @@ func TestVerifyBundleValid(test *testing.T) {
 	}
 }
 
+func TestVerifyBundlePresentEmptyPayloads(test *testing.T) {
+	for _, representation := range []struct {
+		name  string
+		value []byte
+	}{{"nil", nil}, {"empty slice", []byte{}}} {
+		for _, scenario := range []struct {
+			name  string
+			names []string
+		}{
+			{"worktree list", []string{"worktree-list.bin"}},
+			{"status", []string{"status.bin"}},
+			{"staged patch", []string{"staged.patch"}},
+			{"unstaged patch", []string{"unstaged.patch"}},
+			{"clean status and patches", []string{"status.bin", "staged.patch", "unstaged.patch"}},
+		} {
+			test.Run(representation.name+"/"+scenario.name, func(test *testing.T) {
+				value, payloads := bundleFixture(test, nil)
+				for _, name := range scenario.names {
+					payloads[name] = representation.value
+					value.Files[name] = fmt.Sprintf("sha256:%x", sha256.Sum256(representation.value))
+				}
+				if len(payloads["untracked.tar.gz"]) == 0 {
+					test.Fatal("empty opaque payload control requires a real archive")
+				}
+				if err := VerifyPayloads(value, payloads); err != nil {
+					test.Fatalf("matching empty-payload hashes rejected: %v", err)
+				}
+				contents := bundleManifest(test, value)
+				if err := VerifyBundle(contents, payloads, 1<<20); err != nil {
+					test.Fatalf("present empty opaque payloads rejected: %v", err)
+				}
+				delete(payloads, scenario.names[0])
+				assertBundleError(test, VerifyBundle(contents, payloads, 1<<20), ErrPayloadIntegrity)
+			})
+		}
+	}
+}
+
 func TestVerifyBundleWholeByteBoundary(test *testing.T) {
 	value, payloads := bundleFixture(test, nil)
 	contents := bundleManifest(test, value)
@@ -177,7 +215,7 @@ func TestVerifyBundlePreservesManifestLimits(test *testing.T) {
 }
 
 func TestVerifyBundleRejectsRehashedInvalidArchive(test *testing.T) {
-	for _, scenario := range []string{"invalid gzip", "checksum", "appended data", "invalid tar", "traversal tar"} {
+	for _, scenario := range []string{"invalid gzip", "nil gzip", "empty gzip", "checksum", "appended data", "invalid tar", "traversal tar"} {
 		test.Run(scenario, func(test *testing.T) {
 			value, payloads := bundleFixture(test, nil)
 			archive := payloads["untracked.tar.gz"]
@@ -185,6 +223,10 @@ func TestVerifyBundleRejectsRehashedInvalidArchive(test *testing.T) {
 			switch scenario {
 			case "invalid gzip":
 				archive, cause = []byte("not a gzip archive"), gzip.ErrHeader
+			case "nil gzip":
+				archive = nil
+			case "empty gzip":
+				archive = []byte{}
 			case "checksum":
 				archive[len(archive)-8] ^= 1
 				cause = gzip.ErrChecksum
@@ -220,6 +262,36 @@ func TestVerifyBundlePreservesExpandedArchiveLimit(test *testing.T) {
 		test.Fatal("fixture does not distinguish encoded and expanded budgets")
 	}
 	assertBundleError(test, VerifyBundle(contents, payloads, budget), ErrBundleLimit, ErrUntrackedLimit)
+}
+
+func TestVerifyBundleExactExpandedArchiveBoundary(test *testing.T) {
+	data := bytes.Repeat([]byte{'x'}, 4096)
+	expanded := untrackedCodecTar(test, untrackedCodecRecord{
+		header: tar.Header{Name: "data.bin", Typeflag: tar.TypeReg, Mode: 0o600, Size: int64(len(data)), Format: tar.FormatUSTAR},
+		data:   data,
+	})
+	archive := untrackedCodecGzip(test, expanded)
+	value, payloads := bundleFixture(test, nil)
+	payloads["untracked.tar.gz"] = archive
+	value.Files["untracked.tar.gz"] = fmt.Sprintf("sha256:%x", sha256.Sum256(archive))
+	value.UntrackedFiles, value.UntrackedBytes = 1, int64(len(data))
+	contents := bundleManifest(test, value)
+	expandedBytes := int64(len(expanded))
+	if encodedBytes := bundleBytes(contents, payloads); encodedBytes >= expandedBytes-1 {
+		test.Fatalf("encoded bundle %d would mask expanded boundary %d", encodedBytes, expandedBytes)
+	}
+	for _, spare := range []int64{1, 0, -1} {
+		test.Run(fmt.Sprint(spare), func(test *testing.T) {
+			err := VerifyBundle(contents, payloads, expandedBytes+spare)
+			if spare >= 0 {
+				if err != nil {
+					test.Fatalf("expanded bytes %d fit budget %d: %v", expandedBytes, expandedBytes+spare, err)
+				}
+			} else {
+				assertBundleError(test, err, ErrBundleLimit, ErrUntrackedLimit)
+			}
+		})
+	}
 }
 
 func TestVerifyBundlePreservesUntrackedEntryLimit(test *testing.T) {

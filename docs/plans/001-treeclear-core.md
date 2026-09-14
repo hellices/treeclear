@@ -2843,6 +2843,17 @@ timed fuzz campaign. Native Windows/Linux execution is not claimed locally;
 final-head CI, independent reviews and actual-merge CI remain revision-bound
 PR requirements, not satisfied by this historical checkpoint.
 
+The first independent task review of `5c54990` found no production defect but
+identified two Minor test-oracle gaps: an exact expanded-tar acceptance boundary
+and present-but-empty opaque payloads. The controller reproduced both surviving
+mutants against the original bundle suite. New standard tar/gzip boundary tests
+reject a `maximumBytes-1` decoder mutation at the exact fit; ten positive
+nil/empty-payload cases reject a length-as-presence mutation. Separate missing-key
+and empty-gzip controls retain fail-closed behavior. The unchanged production
+wrapper passes the strengthened focused suite (1.443s). These are regression
+oracle corrections, not runtime defects; they still require exact-head re-review
+and renewed native CI before merge.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**
