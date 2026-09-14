@@ -49,6 +49,47 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -count=1 ./...
+      - name: Check native guard test oracle (temporary)
+        if: runner.os == 'Windows'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $sourcePath = (Resolve-Path internal/snapshot/read_untracked_observation.go).Path
+          $source = [IO.File]::ReadAllText($sourcePath).Replace("`r`n", "`n")
+          $guard = "`tif err := validateAdministrativeReadNativeInfo(information); err != nil {`n" +
+            "`t`treturn fmt.Errorf(`"%w: unsupported untracked native information: %w`", ErrUntrackedInvalid, err)`n" +
+            "`t}`n"
+          if ([regex]::Matches($source, [regex]::Escape($guard)).Count -ne 1) {
+            throw "Expected exactly one native guard in the probe source"
+          }
+          $probeRoot = Join-Path $env:RUNNER_TEMP ("treeclear-native-guard-" + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $probeRoot | Out-Null
+          try {
+            $mutantPath = Join-Path $probeRoot 'observation.go'
+            $overlayPath = Join-Path $probeRoot 'overlay.json'
+            $resultPath = Join-Path $probeRoot 'result.jsonl'
+            $stderrPath = Join-Path $probeRoot 'stderr.txt'
+            $encoding = [Text.UTF8Encoding]::new($false)
+            [IO.File]::WriteAllText($mutantPath, $source.Replace($guard, ''), $encoding)
+            $overlay = @{ Replace = @{ $sourcePath = $mutantPath } } | ConvertTo-Json -Depth 4
+            [IO.File]::WriteAllText($overlayPath, $overlay, $encoding)
+            go test -count=1 -timeout=60s "-overlay=$overlayPath" -json -run '^TestReadUntrackedNativeWindowsValidatorAttributes$' ./internal/snapshot > $resultPath 2> $stderrPath
+            $probeExit = $LASTEXITCODE
+            $events = Get-Content $resultPath | ConvertFrom-Json
+            $prefix = 'TestReadUntrackedNativeWindowsValidatorAttributes'
+            $expected = @("$prefix/reparse", "$prefix/device", "$prefix/reparse-device", "$prefix/unavailable")
+            $failed = @($events | Where-Object { $_.Action -eq 'fail' -and $_.Test -like "$prefix/*" } | Select-Object -ExpandProperty Test)
+            $safe = @($events | Where-Object { $_.Action -eq 'pass' -and $_.Test -eq "$prefix/ordinary" })
+            if ($probeExit -ne 1 -or $failed.Count -ne 4 -or $safe.Count -ne 1) {
+              throw "Native guard bypass did not produce the expected four failures and safe control"
+            }
+            if (@(Compare-Object $expected $failed).Count -ne 0) {
+              throw "Native guard bypass failed the wrong test cases"
+            }
+            Write-Host 'Native guard bypass: four expected negative failures; safe control passed.'
+          } finally {
+            Remove-Item -LiteralPath $probeRoot -Recurse -Force
+          }
+          exit 0
       - name: Race test
         run: go test -race -count=1 ./...
       - name: Build

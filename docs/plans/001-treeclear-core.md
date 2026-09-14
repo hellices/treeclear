@@ -2545,6 +2545,17 @@ Unix still exercises the original nested-root layout. No case is skipped and
 no production guard or existing helper is changed. Native verification of this
 fixture correction is pending.
 
+Corrected head `39292b3` passed native macOS/Windows CI run `34797241711`.
+Independent review then identified a distinct test-oracle gap: the Windows
+attribute-injection wrappers can be rejected by `os.SameFile` regardless of
+their flags, masking omission of the new reader's native validator call.
+Direct `validateUntrackedReadInfo` tests now use both native and wrapped safe
+controls, plus reparse/device/combined/unavailable attributes while preserving
+the same valid ordinary mode and size. No identity comparison can satisfy
+these assertions. The original end-to-end no-byte/close checks are retained.
+Native verification and independent re-review of these controls are pending;
+no executed Windows guard-bypass mutation experiment is claimed.
+
 - [x] Verify the clean merged baseline and assess the existing harness.
 - [x] Observe failing integration, request, capacity, context and sentinel-I/O
   assertions before implementation, then expand deterministic fault coverage.

@@ -11,6 +11,52 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func TestReadUntrackedNativeWindowsValidatorAttributes(test *testing.T) {
+	directory := newUntrackedFaultFixture(test)
+	information := untrackedChangeFixtureInfo(test, filepath.Join(directory, "nested", "first.bin"))
+	attributes, ok := information.Sys().(*syscall.Win32FileAttributeData)
+	if !ok || attributes == nil {
+		test.Fatal("fixture has no native Windows attributes")
+	}
+	if information.Mode()&^untrackedPermissionBits != 0 || information.Size() < 0 {
+		test.Fatal("fixture must pass the ordinary mode and size checks")
+	}
+	if err := validateUntrackedReadInfo(information); err != nil {
+		test.Fatalf("ordinary native file information rejected: %v", err)
+	}
+	for _, scenario := range []struct {
+		name        string
+		attributes  uint32
+		unavailable bool
+	}{
+		{name: "ordinary"},
+		{name: "reparse", attributes: windows.FILE_ATTRIBUTE_REPARSE_POINT},
+		{name: "device", attributes: windows.FILE_ATTRIBUTE_DEVICE},
+		{name: "reparse-device", attributes: windows.FILE_ATTRIBUTE_REPARSE_POINT | windows.FILE_ATTRIBUTE_DEVICE},
+		{name: "unavailable", unavailable: true},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			copyAttributes := *attributes
+			copyAttributes.FileAttributes |= scenario.attributes
+			wrapped := administrativeReadWindowsInformation{FileInfo: information, attributes: &copyAttributes}
+			if scenario.unavailable {
+				wrapped.attributes = nil
+			}
+			if wrapped.Mode() != information.Mode() || wrapped.Size() != information.Size() {
+				test.Fatal("native attribute fixture changed ordinary mode or size")
+			}
+			err := validateUntrackedReadInfo(wrapped)
+			if scenario.attributes != 0 || scenario.unavailable {
+				if !errors.Is(err, ErrUntrackedInvalid) {
+					test.Fatalf("native guard accepted unsafe ordinary-mode information: %v", err)
+				}
+			} else if err != nil {
+				test.Fatalf("safe wrapped information rejected independently of identity: %v", err)
+			}
+		})
+	}
+}
+
 func TestReadUntrackedNativeWindowsUnsafeAttributes(test *testing.T) {
 	for _, attribute := range []struct {
 		name  string
