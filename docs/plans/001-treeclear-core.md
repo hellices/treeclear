@@ -3009,6 +3009,29 @@ diagnose nor waive Task8A's historical optional timed-fuzz timeout. Source
 capture remains read-only and does not establish an atomic filesystem snapshot,
 sensitivity authorization, publication, a receipt or cleanup eligibility.
 
+Initial-head CI `34833141007` passed on macOS but failed six Windows unit
+fixtures: moving the repository/common root while descendant roots were pinned
+returned access denied before a replacement occurred. Independent task review
+identified this as a supported-platform harness blocker, not a production
+acceptance of changed source data. Production pinning remains unchanged.
+
+The revised fixtures prepare matching replacement directories outside all
+observed roots before capture. They verify that an unpinned rename succeeds;
+if Windows denies an ancestor move while capture handles are held, they require
+an unchanged complete capture and native identity, no moved original, and a
+successful rename after capture closes its handles. Other errors remain test
+failures; successfully replaced roots must still produce `ErrSourceChanged`.
+Separate substituted native observations exercise all four roots at all three
+collection boundaries without depending on whether Windows allows the move.
+All 12 rejection assertions fail when a local Go overlay disables the observed
+identity comparison, despite equal size/mode/mtime; unchanged production passes.
+
+The revised root tests passed locally (0.680s). The renewed full normal/race
+matrices passed (snapshot 31.465s/56.267s), as did vet/build, empty formatting
+output and diff checks, with identical Go/module hashes before and after.
+These are local macOS results; the revised exact-head native Windows controls
+and both independent re-reviews still require completion before merge.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

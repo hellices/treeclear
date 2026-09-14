@@ -962,28 +962,28 @@ func TestCaptureSourceUnitPhysicalRoots(test *testing.T) {
 				fixture := newSourceUnitFixture(test)
 				roots := map[string]string{"repository": fixture.expected.RepositoryRoot, "common": fixture.expected.CommonGitDir, "worktree": fixture.expected.Path, "admin": fixture.expected.AdminDir}
 				root := roots[rootName]
+				attempts := 0
+				blocked := false
+				var original fs.FileInfo
 				if boundary == "before" {
 					if err := os.RemoveAll(root); err != nil {
 						test.Fatal(err)
 					}
 				} else {
+					sourceUnitRootRenameControl(test, root)
+					replacement, information := sourceUnitRootCopy(test, root)
+					original = information
 					fixture.before = func(name string, pass int) error {
-						if boundary == "first-list" && name == "list" && pass == 1 || boundary == "second-list" && name == "list" && pass == 2 || boundary == "final-untracked" && name == "untracked" && pass == 2 {
-							replacement := root + "-replacement"
-							if err := os.CopyFS(replacement, os.DirFS(root)); err != nil {
-								test.Fatal(err)
-							}
-							original, err := os.Stat(root)
-							if err != nil {
-								test.Fatal(err)
-							}
-							if err := os.Chmod(replacement, original.Mode().Perm()); err != nil {
-								test.Fatal(err)
-							}
-							if err := os.Chtimes(replacement, original.ModTime(), original.ModTime()); err != nil {
-								test.Fatal(err)
+						if sourceUnitRootBoundary(boundary, name, pass) {
+							attempts++
+							if attempts != 1 {
+								test.Fatal("root replacement repeated")
 							}
 							if err := os.Rename(root, root+"-original"); err != nil {
+								if runtime.GOOS == "windows" && (rootName == "repository" || rootName == "common") && errors.Is(err, fs.ErrPermission) {
+									blocked = true
+									return nil
+								}
 								test.Fatal(err)
 							}
 							if err := os.Rename(replacement, root); err != nil {
@@ -996,8 +996,24 @@ func TestCaptureSourceUnitPhysicalRoots(test *testing.T) {
 				actual, err := fixture.capture(test.Context(), 1<<20)
 				if boundary == "before" {
 					assertSourceUnitFailure(test, actual, err, fs.ErrNotExist)
+				} else if blocked {
+					if err != nil || !reflect.DeepEqual(actual, fixture.contents) {
+						test.Fatalf("native-blocked replacement changed capture: %v", err)
+					}
+					current, err := os.Stat(root)
+					if err != nil || !os.SameFile(original, current) {
+						test.Fatalf("native-blocked replacement changed root identity: %v", err)
+					}
+					if _, err := os.Lstat(root + "-original"); !errors.Is(err, fs.ErrNotExist) {
+						test.Fatalf("native-blocked replacement moved the original: %v", err)
+					}
+					sourceUnitRootRenameControl(test, root)
+					test.Log("Windows blocked the ancestor move while descendants were pinned; pre/post rename controls passed")
 				} else {
 					assertSourceUnitFailure(test, actual, err, ErrSourceChanged)
+				}
+				if boundary != "before" && attempts != 1 {
+					test.Fatal("root replacement boundary was not exercised")
 				}
 			})
 		}
