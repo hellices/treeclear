@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8G bounded whole-bundle verification
+- Status: In progress — Task 8H bounded read-only source capture
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,7 +12,7 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, and #12 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, and #13 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
@@ -29,9 +29,11 @@ read-only collection of explicitly supplied source leaves and their parents
 also passed independent review and native CI on the final head and merge
 commit. Task 8F's exact guarded status-derived untracked paths also passed
 independent review and native macOS/Windows CI on the final head and actual
-merge. Task 8G composes the existing pure codecs into bounded whole-bundle
-verification without changing the legacy hash-only payload contract.
-Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
+merge. Task 8G's bounded whole-bundle verification passed independent review
+and native macOS/Windows CI on its final head and actual merge, without changing
+the legacy hash-only payload contract. Task 8H now composes the guarded readers
+into bounded, revalidated source capture.
+Task 8 source capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
@@ -2810,10 +2812,10 @@ are sufficient. No framework, dependency, workflow or global-state changes.
   from the unchanged successful hash-only control; exercise normal fuzz seeds.
 - [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
   `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
-- [ ] Open a scoped PR, obtain independent task and whole-branch reviews, fix
+- [x] Open a scoped PR, obtain independent task and whole-branch reviews, fix
   all actionable findings and repeat to clean; audit complete remote reviews
   and require exact-final-head native macOS/Windows CI before authorized merge.
-- [ ] Verify reviewed-head ancestry/tree identity and native macOS/Windows CI
+- [x] Verify reviewed-head ancestry/tree identity and native macOS/Windows CI
   on the actual merge commit before advancing.
 
 Plan-bound coherent capture, sensitivity preflight, private publication,
@@ -2853,6 +2855,159 @@ and empty-gzip controls retain fail-closed behavior. The unchanged production
 wrapper passes the strengthened focused suite (1.443s). These are regression
 oracle corrections, not runtime defects; they still require exact-head re-review
 and renewed native CI before merge.
+
+### Remaining Task 8 lifecycle
+
+Task8G closure: PR #13 merged reviewed head
+`5fe8cb288898a31342b14d1053ef93e68c307f64` as
+`d27094eddd453a8e083cf7278eaa43f06eac369f`. Both independent AI re-reviews
+closed the two oracle findings with no further actionable findings. The
+Copilot source-walk claim was disproved and its thread resolved; final Copilot
+review had no new comments and retained its human-review recommendation.
+These are not human approval. Native macOS/Windows runs `34809376066` and
+`34810006969` passed on the reviewed PR checkout and actual merge respectively;
+parents, reviewed-head ancestry and complete tree equality were verified.
+
+A subsequent read-only AI boundary review of the identical merged tree found
+no new actionable finding. Nine extra finite probes passed normally and under
+race detection. A current-source, isolated-cache 20-second/four-worker manifest
+fuzz run passed 1,111,337 executions on Go1.26.5 darwin/arm64. This is additional
+bounded evidence, not a diagnosis or waiver of Task8A's original timed-fuzz
+failure. The complete GitHub review/thread audit was clean. Raw inputs and
+reports remain local. Source capture and the remaining lifecycle stay pending.
+
+### Task 8H: Bounded read-only source capture (scoped slice)
+
+Execute the existing Task8 capture requirement before coupling it to private
+publication or restoration. Reuse the guarded Git, administrative and untracked
+readers. Compare two bounded collections, including actual bytes and original
+modes, rather than treating unchanged status counts as source stability.
+
+**Files:**
+- Create: `internal/snapshot/capture_source.go`
+- Create: focused `internal/snapshot/capture_source_*.go` helpers only as needed
+- Test: `internal/snapshot/capture_source_test.go`
+- Test: `internal/snapshot/capture_source_integration_test.go`
+
+**Interface:**
+
+```go
+type SourceCapture struct {
+	WorktreeList          []byte
+	Status                git.StatusSnapshot
+	StagedPatch           []byte
+	UnstagedPatch         []byte
+	AdministrativeEntries []AdminEntry
+	UntrackedEntries      []UntrackedEntry
+}
+
+func CaptureSource(ctx context.Context, client *git.Client, expected domain.Worktree, maximumBytes int64) (SourceCapture, error)
+```
+
+The public boundary accepts the existing concrete Git client. Use a private
+read-only interface and narrow injected file readers for deterministic tests;
+do not introduce another Git parser, generic resource framework or mutation API.
+The supplied worktree must be a known, path-safe, non-prunable linked worktree
+with canonical physical identities and no collection errors. Require valid
+HEAD/branch-or-detached identity, nonnegative status counts and valid index/admin
+hashes. This capture API is not an eligibility decision: it can read a dirty,
+locked or current linked worktree but never authorizes its removal.
+
+Validate and observe repository, common-Git, worktree and administrative root
+directory identities before collection. Require the exact supplied canonical
+paths, a non-primary registered target, and an administrative directory strictly
+inside its common Git directory. Retain native file identities across both
+collections and recheck them and canonical paths before returning. A replaced,
+aliased, inaccessible or conflicting root fails closed, even if the new path
+contains identical bytes. Reuse guarded native opening primitives where needed.
+
+Each collection performs the following bounded sequence:
+
+1. Read `ListWorktreesRaw`; require a single exact matching target, matching
+   primary repository/common identities and registered HEAD/branch/lock state.
+2. Enrich that listed target with `InspectWorktree`; require known state,
+   no errors and agreement with the supplied source identity, status, hashes
+   and observed Git metadata. Do not trust a stale supplied record in place of
+   fresh inspection.
+3. Read `StatusSnapshot`; require agreement with the inspected status and its
+   exact selected leaf count. Retain raw bytes and exact untracked paths.
+4. Read guarded staged and unstaged binary patches, administrative diagnostics,
+   and the explicitly selected untracked leaves/parents, in that order.
+5. Preserve existing administrative and untracked validation/capacity limits;
+   require the returned untracked leaves and structural parents to match the
+   explicit Git selection. Recheck context and root identities.
+
+Clone retained mutable values before invoking subsequent collectors so a
+collector reusing its own buffers cannot erase evidence of a change. Compare
+both complete raw worktree/status outputs, patches, selection, administrative
+paths/kinds/modes/data, untracked paths/kinds/modes/data/link text and inspected
+Git source fields. Differences fail closed; never retry until evidence happens
+to agree. Return an owned first capture only after all comparisons succeed.
+Cancellation or any error returns the complete zero `SourceCapture`, preserving
+the original cause with `errors.Is`; no partial capture is usable.
+
+Require a positive safely representable source-byte limit. Each collection
+independently accounts, using subtraction, for all four raw Git byte sequences,
+administrative file bytes, untracked regular-file bytes and symlink target text.
+Check each result before advancing to the next collector. Fixed entry/path
+limits still bound structural metadata. This source-content limit is not a
+whole-heap quota or Task8G's encoded/expanded bundle limit; temporary collector
+allocations and the second comparison copy are not described as fitting one
+retained-copy budget. Existing per-command and per-codec bounds remain intact.
+
+Expose `ErrSourceInvalid` for every failure, `ErrSourceChanged` for changed
+observations, and `ErrSourceLimit` for invalid budgets or known byte/capacity
+failures. Preserve context, filesystem, Git and existing codec error causes;
+do not classify arbitrary Git errors by matching their text.
+
+Matching bounded observations are not a filesystem transaction or proof against
+unobserved change-and-revert (ABA) activity or a malicious same-user writer.
+Later apply must still authenticate/revalidate the full plan and verify every
+published snapshot before removal. Capture creates no archive, manifest,
+recovery ref, file, receipt, process/provider invocation, network request or
+cleanup action. Private publication, sensitivity preflight, restoration and
+receipt/cleanup integration remain subsequent independently reviewed slices.
+
+Harness assessment: reuse ordinary Go tests, injectable narrow readers/runners,
+existing codecs, `internal/testutil` owned temporary repositories and native
+macOS/Windows CI. No dependencies, global-state mutations, custom gates or
+additional worktrees are needed.
+
+- [x] Observe assertion RED for invalid identity/unknown state, changed roots,
+  changed Git/raw/administrative/untracked evidence, aliased collector buffers,
+  incomplete/extra selection, each byte contribution and exact limits,
+  preserved errors/cancellation and zero results on every failure.
+- [x] Implement the minimal read-only composition and verify focused GREEN.
+- [x] Prove native Git composition, dirty binary/ignored/untracked inputs,
+  supported native symlink behavior, deterministic mid-capture changes and
+  unchanged source/index evidence using owned temporary repositories.
+- [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
+  `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
+- [ ] Open a scoped PR, fix all actionable task/whole-branch review findings,
+  repeat to clean, and audit all remote review bodies and threads.
+- [ ] Require native macOS/Windows CI for the exact final head, use the
+  authorized exact-head guarded merge, then verify actual-merge identity and
+  native CI before advancing.
+
+At the implementation checkpoint, the unit and native integration rejection
+assertions failed against an explicit unimplemented stub before production
+implementation. Missing-API compile failures are recorded separately and are
+not behavioral RED. Two additional failing regressions exposed inconsistent
+lock state and a duplicate primary path marked non-primary; both are fixed.
+All 24 focused unit/native test groups subsequently passed normally (17.405s)
+and under race detection (19.515s), including exact aggregate budget boundaries,
+mutable-buffer ownership, all root open/stat/close failures, deterministic
+mid-capture changes, preserved causes and complete zero failure results.
+
+Controller Go1.26.5 darwin/arm64 verification passed `go test -count=1 ./...`
+(snapshot 27.112s), `go test -race -count=1 ./...` (snapshot 52.656s),
+`go vet ./...` and `go build ./...`. `gofmt -l .` and `git diff --check`
+printed nothing; all Go source hashes were identical before and after the
+matrix. Native Windows execution, independent reviews and final-head/actual-
+merge CI remain pending revision-bound requirements. These tests neither
+diagnose nor waive Task8A's historical optional timed-fuzz timeout. Source
+capture remains read-only and does not establish an atomic filesystem snapshot,
+sensitivity authorization, publication, a receipt or cleanup eligibility.
 
 ### Remaining Task 8 lifecycle
 
