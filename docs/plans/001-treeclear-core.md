@@ -3241,6 +3241,24 @@ opaque-error and no-op-close assertion REDs preceded that portable oracle.
 Native macOS/Windows CI on the published R6 tree remains pending, as does the
 blocked independent review. No merge or production acceptance is claimed.
 
+R6 candidate `7e21a4e`, tree `d45c26786bafab5727708288ad765192a5117f61`,
+passed macOS CI `34848951210`; Windows failed exactly two administrative-alias
+fixture preconditions before reaching their product assertions. The Windows
+snapshot normal suite passed (88.919s), but race/build/source-unchanged steps
+were not reached. Checkout `e34107e6abec2d2ca2dc429a9f6402175f15d190` has the
+candidate tree and parents `d27094e`/`7e21a4e`.
+
+Installed Go 1.26.5 Windows source confirms that ordinary junction mount points
+are not classified as ModeSymlink for EvalSymlinks traversal. A terminal
+junction can be retained rather than resolved, and an intermediate junction
+can fail. The fixture's assumed EvalSymlinks canonical string was therefore not
+a valid native identity oracle. The next test-first checkpoint uses eagerly
+opened native identities and actual Git routing as fixture preconditions, and
+directly exercises administrative-pointer resolution through both junction
+positions. No toolchain, GODEBUG setting, fixture skip, or production relaxation
+is used. Native product assertion RED must be observed before correcting the
+Windows pointer resolver; this checkpoint is not merge-ready.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

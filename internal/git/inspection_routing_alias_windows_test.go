@@ -45,9 +45,8 @@ func TestClientInspectAllowsWindowsAdministrativeDirectoryAliases(test *testing.
 				inspectionRoutingWindowsJunction(test, ownedRoot, junction, filepath.Dir(known.AdminDir))
 				pointer = filepath.Join(junction, filepath.Base(known.AdminDir))
 			}
-			canonicalPointer, err := filepath.EvalSymlinks(pointer)
-			if err != nil || !strings.EqualFold(canonicalPointer, known.AdminDir) || !os.SameFile(administrative, inspectionRoutingWindowsDirectoryIdentity(test, pointer)) {
-				test.Fatalf("directory alias does not identify the original administrative directory: pointer=%q resolved=%q expected=%q error=%v", pointer, canonicalPointer, known.AdminDir, err)
+			if !os.SameFile(administrative, inspectionRoutingWindowsDirectoryIdentity(test, pointer)) {
+				test.Fatalf("native directory alias does not identify the original administrative directory: pointer=%q expected=%q", pointer, known.AdminDir)
 			}
 			marker := filepath.Join(worktree, ".git")
 			if err := os.WriteFile(marker, []byte("gitdir: "+filepath.ToSlash(pointer)+"\n"), 0o600); err != nil {
@@ -73,14 +72,44 @@ func TestClientInspectAllowsWindowsAdministrativeDirectoryAliases(test *testing.
 				if !filepath.IsAbs(observed) {
 					test.Fatalf("native Git returned a non-absolute %s: %q", target.option, observed)
 				}
-				canonical, err := filepath.EvalSymlinks(observed)
-				if err != nil || !strings.EqualFold(canonical, target.path) || !os.SameFile(target.information, inspectionRoutingWindowsDirectoryIdentity(test, observed)) {
-					test.Fatalf("native Git selects a different %s: observed=%q canonical=%q expected=%q error=%v", target.option, observed, canonical, target.path, err)
+				if !os.SameFile(target.information, inspectionRoutingWindowsDirectoryIdentity(test, observed)) {
+					test.Fatalf("native Git selects a different %s: observed=%q expected=%q", target.option, observed, target.path)
 				}
 			}
 			actual, err := client.InspectWorktree(ctx, repository.Root, record)
 			if err != nil || !actual.GitStateKnown || !actual.PathSafe || len(actual.CollectionErrors) != 0 || actual.AdminDir != known.AdminDir || actual.CommonGitDir != known.CommonGitDir || actual.Head != known.Head || actual.Branch != known.Branch || actual.IndexHash != known.IndexHash || actual.AdminHash == "" {
 				test.Fatalf("legitimate same-admin directory alias rejected or changed inspection: %#v, %v", actual, err)
+			}
+		})
+	}
+}
+
+func TestInspectionPointerPathsWindowsJunctions(test *testing.T) {
+	for _, scenario := range []string{"ordinary", "terminal junction", "intermediate junction"} {
+		test.Run(scenario, func(test *testing.T) {
+			ownedRoot := readonlyIndexCanonicalTemporaryDirectory(test)
+			parent := filepath.Join(ownedRoot, "target parent")
+			target := filepath.Join(parent, "target leaf")
+			if err := os.MkdirAll(target, 0o700); err != nil {
+				test.Fatal(err)
+			}
+			expected := inspectionRoutingWindowsDirectoryIdentity(test, target)
+			pointer := target
+			switch scenario {
+			case "terminal junction":
+				pointer = filepath.Join(ownedRoot, "terminal alias")
+				inspectionRoutingWindowsJunction(test, ownedRoot, pointer, target)
+			case "intermediate junction":
+				junction := filepath.Join(ownedRoot, "intermediate alias")
+				inspectionRoutingWindowsJunction(test, ownedRoot, junction, parent)
+				pointer = filepath.Join(junction, filepath.Base(target))
+			}
+			if !os.SameFile(expected, inspectionRoutingWindowsDirectoryIdentity(test, pointer)) {
+				test.Fatal("native pointer fixture does not identify the expected target")
+			}
+			actual, err := inspectionPointerPath(test.Context(), ownedRoot, pointer)
+			if err != nil || !strings.EqualFold(actual, target) || !os.SameFile(expected, inspectionRoutingWindowsDirectoryIdentity(test, actual)) {
+				test.Fatalf("pointer did not resolve the native target: actual=%q expected=%q error=%v", actual, target, err)
 			}
 		})
 	}
