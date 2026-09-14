@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/hellices/treeclear/internal/domain"
 )
@@ -51,6 +52,13 @@ func (client *Client) readStatusRaw(ctx context.Context, worktree string) ([]byt
 	result, err := client.run(ctx, worktree, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil {
 		return nil, err
+	}
+	if len(result.Stderr) != 0 {
+		diagnostic := result.Stderr
+		if len(diagnostic) > 4096 {
+			diagnostic = diagnostic[:4096]
+		}
+		return nil, fmt.Errorf("git status reported diagnostics: %s", diagnostic)
 	}
 	return result.Stdout, nil
 }

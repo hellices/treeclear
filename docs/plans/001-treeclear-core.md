@@ -2614,6 +2614,8 @@ be mistaken for another entry. The existing strict parser remains authoritative.
 - Modify: `internal/git/status_porcelain.go`
 - Test: `internal/git/status_paths_test.go`
 - Test: `internal/git/status_snapshot_test.go`
+- Test: `internal/git/status_diagnostics_test.go`
+- Test: `internal/git/status_diagnostics_integration_test.go`
 - Test: `internal/git/status_snapshot_integration_test.go`
 - Modify: `internal/git/porcelain_fuzz_test.go`
 - Test: `internal/snapshot/status_selection_integration_test.go`
@@ -2656,6 +2658,13 @@ retained path slice. Share the strict parser and guarded status command path,
 not a second parser. Any root/guard/command/framing/metadata/capacity error or
 observed cancellation returns the complete zero result, preserving I/O and
 context causes rather than exposing a partial summary, raw payload or selection.
+
+An exit-zero status command with nonempty stderr is not a complete observation.
+The shared status boundary must reject all such diagnostics, including unknown
+or whitespace-only output, before exposing any stdout. Retain at most the first
+4096 diagnostic bytes and preserve pre-existing command-error causes. Apply this
+rule to `StatusSnapshot`, `StatusRaw` and `Status`, without changing the generic
+runner's successful mutation behavior or warning-free legacy summaries.
 
 Harness assessment: existing fake `execx.Runner` boundaries, strict parser
 fixtures, `internal/testutil` temporary repositories and the normal Go/native
@@ -2700,6 +2709,25 @@ Formatting and whitespace checks printed nothing. No native local Windows or
 Linux execution or timed fuzz run is claimed. Keep subsequent CI/review results
 bound to their actual revisions in the PR record; a historical checkpoint does
 not waive exact-final-head or actual-merge-commit verification.
+
+Independent whole-branch review of the initial Task8F head `4a18417` identified
+one Important/P1 finding: successful status diagnostics were discarded, allowing
+incomplete untracked enumeration to appear successful. Controller-run regression
+tests reproduced that boundary failure for empty and partial stdout through all
+three status APIs, including unrecognized/whitespace diagnostics and diagnostic
+bounding. Warning-free empty observations, uncapped legacy summaries and existing
+command-error cause preservation were already green. The initial passing native
+CI did not resolve the finding; subsequent fixes, reviews and CI must remain
+revision-bound in the PR record.
+
+An independent tests-only worker also reproduced F1 with owned native macOS
+repositories: denied directory and leaf access were positively established;
+actual Git returned exit zero, diagnostics and either empty or partial stdout.
+All three APIs reached the intended rejection assertions before the fix (six
+assertion failures, no skips). The fixture restores permissions and checks source
+bytes during cleanup. Windows explicitly skips this mode-based denial fixture;
+deterministic runner diagnostics remain covered on all supported platforms.
+No native Windows ACL-denial or Linux execution is claimed by this fixture.
 
 ### Remaining Task 8 lifecycle
 
