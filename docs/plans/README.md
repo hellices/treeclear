@@ -36,6 +36,16 @@ unsupported-platform refusal for apply, restore, and trash prune; Plan 004
 Task 6 owns the same boundary for scheduling. These guards are pending
 implementation, not functionality provided by this documentation amendment.
 
+## Early macOS source-install preview
+
+The user-requested source-install slice of
+[Plan 004 Task 8](004-operations-and-release.md#early-slice-native-source-installation)
+is brought forward from the release stage, based only on reviewed `main`.
+It installs the existing non-removing CLI for local evaluation. It does not
+depend on or merge PR #14, complete Plan 001, or waive any open review. Signed
+archives, native architecture qualification, SBOMs, attestations, and release
+publication retain their original dependencies and acceptance requirements.
+
 ## Cross-plan CLI ownership
 
 | Command or flag | Owning plan |
