@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -16,6 +17,16 @@ func TestReadUntrackedChangeIdentityReplacement(test *testing.T) {
 		for _, boundary := range []string{"pre-open", "post-open", "post-read", "later-file"} {
 			test.Run(target+"/"+boundary, func(test *testing.T) {
 				directory := newUntrackedFaultFixture(test)
+				paths := []string{"nested/first.bin", "nested/later.bin"}
+				if target == "root" && runtime.GOOS == "windows" {
+					for index, relative := range paths {
+						name := filepath.Base(relative)
+						if err := os.Rename(filepath.Join(directory, filepath.FromSlash(relative)), filepath.Join(directory, name)); err != nil {
+							test.Fatal(err)
+						}
+						paths[index] = name
+					}
+				}
 				filename := directory
 				if target == "parent" {
 					filename = filepath.Join(directory, "nested")
@@ -109,7 +120,7 @@ func TestReadUntrackedChangeIdentityReplacement(test *testing.T) {
 						}
 					}
 				}
-				entries, err := readUntracked(test.Context(), directory, []string{"nested/first.bin", "nested/later.bin"}, 64, operations)
+				entries, err := readUntracked(test.Context(), directory, paths, 64, operations)
 				if !changed {
 					test.Errorf("%s replacement at %s was not exercised", target, boundary)
 				}

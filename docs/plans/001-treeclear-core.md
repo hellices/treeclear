@@ -2533,6 +2533,18 @@ verification remain pending at this execution checkpoint. The Windows
 symlink fixtures explicitly skip only when the native runner lacks symlink
 creation privilege; a cross-build would not establish native behavior.
 
+The first native CI run (`34796863194`, implementation head `2ae302a`) failed
+two Windows root-replacement fixture cases: `post-read` and `later-file`.
+The fixture attempted to rename the root while the reader retained its opened
+`nested` directory; native rename returned access denied before the intended
+identity replacement. Windows root-replacement cases now select files directly
+under the root, avoiding an opened descendant directory while retaining the
+same pre/post-open, completed-read and later-file boundaries, mandatory actual
+identity change, metadata equivalence, nil-result and handle-close assertions.
+Unix still exercises the original nested-root layout. No case is skipped and
+no production guard or existing helper is changed. Native verification of this
+fixture correction is pending.
+
 - [x] Verify the clean merged baseline and assess the existing harness.
 - [x] Observe failing integration, request, capacity, context and sentinel-I/O
   assertions before implementation, then expand deterministic fault coverage.
