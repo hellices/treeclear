@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"path/filepath"
@@ -8,7 +9,38 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf16"
+
+	"github.com/hellices/treeclear/internal/execx"
 )
+
+func TestGitPathResolutionAllowsTerminalDirectorySeparators(test *testing.T) {
+	directory := readonlyIndexCanonicalTemporaryDirectory(test)
+	separator := string(filepath.Separator)
+	for _, scenario := range []struct {
+		name   string
+		suffix string
+	}{
+		{name: "separator", suffix: separator},
+		{name: "repeated separators", suffix: separator + separator},
+		{name: "dot", suffix: separator + "."},
+		{name: "dot with separator", suffix: separator + "." + separator},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			requested := directory + scenario.suffix
+			actual, err := inspectionPointerPath(test.Context(), directory, requested)
+			if err != nil || actual != directory {
+				test.Errorf("directory pointer resolved to %q, error %v; want %q", actual, err, directory)
+			}
+			client := NewClient(runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
+				return execx.Result{Stdout: []byte(filepath.ToSlash(requested) + "\n")}, nil
+			}))
+			actual, err = client.CommonGitDir(test.Context(), directory)
+			if err != nil || actual != directory {
+				test.Errorf("Git directory resolved to %q, error %v; want %q", actual, err, directory)
+			}
+		})
+	}
+}
 
 func TestBoundedNativeGitPath(test *testing.T) {
 	directory := readonlyIndexCanonicalTemporaryDirectory(test)

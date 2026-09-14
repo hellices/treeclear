@@ -3313,6 +3313,33 @@ observations are not atomic or ABA-proof, and the initial Windows raw-Lstat
 identity limitation remains. Independent review is still blocked; neither
 these corrections nor CI alone authorize merge or dependent work.
 
+Corrective candidate `0431776`, tree `e9a91546f773b9ed76a75fec5e333dd05e3e190e`,
+passed the full macOS matrix in CI `34855784108`, but Windows failed 74 test
+leaves across inspection-dependent suites, including fixture preconditions.
+These are cascading failures, not 74 independent findings: native
+GetFullPathName retains the terminal separator from a literal backlink's
+parent, which the strict canonical-form opener rejects. An existing ordinary
+linked-worktree inspection assertion demonstrably failed before correction.
+Windows race/build/source-unchanged steps were not reached. Checkout
+`f8bff9eb96150b52b7c98432a26bd4d75e6ef918` has the exact candidate tree and
+parents `d27094e`/`0431776`; this run is not native Windows acceptance.
+
+The follow-up cleans only the already-native-expanded Windows full path before
+the unchanged canonical opener. It does not lexically clean raw Unix pointer
+traversal, weaken the canonical-form validator, or change pointer-file nofollow
+and native identity comparisons. Added focused controls cover terminal and
+repeated separators and terminal dot forms through both pointer and raw Git
+resolution. They pass on Darwin before this Windows-only correction (0.799s),
+so that result is not claimed as native RED; the failed native ordinary
+inspection is the pre-fix behavioral evidence. Renewed focused controls passed
+(0.954s), followed by the full local `go test -count=1 ./...` (Git 40.906s,
+snapshot 69.123s), `go test -race -count=1 ./...` (Git 41.958s, snapshot
+95.884s), `go vet ./...`, and `go build ./...` on Go 1.26.5 darwin/arm64.
+Formatting and whitespace checks printed nothing, and every non-ignored
+source-file hash remained unchanged across the matrix. Windows test-binary
+cross-compilation also passed, without claiming native execution. Native
+Windows verification and independent review remain required before merge.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

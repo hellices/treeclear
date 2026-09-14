@@ -26,6 +26,7 @@ func resolveNativeGitPath(path string) (resolved string, resultErr error) {
 	if err != nil {
 		return "", err
 	}
+	absolute = filepath.Clean(absolute)
 	volume := filepath.VolumeName(absolute)
 	volumeLength := len(volume)
 	if strings.HasPrefix(volume, `\\`) {
