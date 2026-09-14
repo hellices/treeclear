@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8F exact status-derived untracked paths
+- Status: In progress — Task 8G bounded whole-bundle verification
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,7 +12,7 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, and #11 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, and #12 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
@@ -27,8 +27,10 @@ bounded in-memory untracked tar/gzip codec also passed independent review and
 native macOS/Windows CI on the final head and merge commit. Task 8E's bounded
 read-only collection of explicitly supplied source leaves and their parents
 also passed independent review and native CI on the final head and merge
-commit. Task 8F connects exact untracked paths to their guarded status
-observation without changing legacy inventory summaries.
+commit. Task 8F's exact guarded status-derived untracked paths also passed
+independent review and native macOS/Windows CI on the final head and actual
+merge. Task 8G composes the existing pure codecs into bounded whole-bundle
+verification without changing the legacy hash-only payload contract.
 Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
@@ -2681,10 +2683,10 @@ test state, real workspace/database/scheduler fixture or process enumeration.
 - [x] Implement the shared parser/command path and narrow new result API.
 - [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
   `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
-- [ ] Open a scoped PR, repeat independent reviews until no actionable
+- [x] Open a scoped PR, repeat independent reviews until no actionable
   findings, check complete remote review bodies/threads and require native
   macOS/Windows CI on the exact final head before the authorized merge.
-- [ ] Verify reviewed-head ancestry/tree identity and native macOS/Windows
+- [x] Verify reviewed-head ancestry/tree identity and native macOS/Windows
   CI on the actual merge commit before advancing to another slice.
 
 This API yields Git path evidence, not snapshot eligibility or a coherent
@@ -2737,10 +2739,125 @@ and failed the strengthened 4097/4101 cases; the real unchanged production code
 passed all four boundaries and the native/runner diagnostic regressions. This
 is test-oracle mutation evidence, not a newly discovered production cap defect.
 
+PR #12 closed Task8F at reviewed head `6a5ac59de24bd070de0093377a755d1656bbf7dc`.
+The final independent task and whole-branch reviews found no actionable
+Critical, Important or Minor findings; both prior findings were closed. These
+AI reviews and the bot reviews are not human approval. Native macOS/Windows
+PR CI run `34805513224` passed with the expected base/head parents and complete
+tree equality. The authorized merge `92f6523c5040a2f8b2df618050d6138be356c782`
+then passed native macOS/Windows push CI `34806743917`; both native checkout
+logs matched the actual merge SHA. Reviewed-head ancestry, merge parents and
+tree identity were verified. Task8A's optional timed-fuzz timeout remains
+unresolved and unwaived.
+
+### Task 8G: Bounded whole-bundle verification (scoped slice)
+
+Task8 requires verification and byte limits before publication or recovery.
+The existing codecs and hash-only verifier deliberately expose separate
+contracts: matching hashes alone do not establish a valid untracked archive.
+Compose those boundaries now, rather than widening `VerifyPayloads` or coupling
+source capture, sensitivity policy and filesystem publication prematurely.
+
+**Files:**
+- Create: `internal/snapshot/verify_bundle.go`
+- Test: `internal/snapshot/verify_bundle_test.go`
+- Test: `internal/snapshot/verify_bundle_integration_test.go`
+
+**Interface:**
+
+```go
+func VerifyBundle(manifestContents []byte, payloads map[string][]byte, maximumBytes int64) error
+```
+
+Consume `DecodeManifest`, `VerifyPayloads` and `DecodeUntracked`; do not add a
+second parser or tighten the legacy hash-only API. Require a positive safely
+representable budget, then preflight the encoded manifest and all five required
+payload byte lengths against that one budget before decoding, hashing or
+decompressing. Use subtraction-based checks; reject missing and extra payloads.
+Administrative bytes are counted through their encoded manifest representation,
+including JSON/base64 overhead, not merely their decoded data lengths.
+
+Preserve independent 32 MiB manifest, 16 MiB/4096-entry administrative and
+4096-entry untracked codec limits, plus compressed/expanded tar and aggregate
+file-data bounds. The whole serialized-byte budget is not a whole-heap quota.
+Verify canonical manifest encoding, exact payload names and hashes, archive
+validity, and manifest untracked accounting. Regular files and symlinks each
+count as one leaf; directories are structural and do not increment
+`UntrackedFiles`. `UntrackedBytes` counts regular-file data only. Symlink text
+and tar headers still consume encoded/expanded archive budgets.
+
+All failures match `ErrBundleInvalid`; invalid budgets and size/capacity failures
+also match `ErrBundleLimit`. Preserve underlying manifest, payload and archive
+errors for `errors.Is`. Return only an error, never mutate or retain inputs,
+and perform no filesystem, Git, process or network operations. Success is not
+a durable receipt, proof of source coherence, plan authentication, sensitivity
+authorization, cleanup permission or protection from later caller mutation.
+
+Harness assessment: existing ordinary Go tests, codec fixtures,
+`internal/testutil` owned temporary repositories and native macOS/Windows CI
+are sufficient. No framework, dependency, workflow or global-state changes.
+
+- [x] Write unit tests and observe assertion RED for invalid budgets, the exact
+  aggregate boundary and one-byte excess, each payload's contribution, encoded
+  manifest/admin overhead, malformed/noncanonical manifests, missing/extra/
+  corrupt payloads, invalid archives with recomputed hashes, leaf/data count
+  mismatches, preserved underlying limits/errors and input immutability.
+  Run `go test -count=1 ./internal/snapshot -run TestVerifyBundle -v`.
+- [x] Implement the minimal pure wrapper and verify focused GREEN, including
+  valid empty/file/directory/symlink bundles and independent expansion limits.
+- [x] Add owned native Git/status/reader/archive/manifest composition and source
+  preservation coverage. Prove malformed rehashed archive rejection separately
+  from the unchanged successful hash-only control; exercise normal fuzz seeds.
+- [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
+  `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
+- [ ] Open a scoped PR, obtain independent task and whole-branch reviews, fix
+  all actionable findings and repeat to clean; audit complete remote reviews
+  and require exact-final-head native macOS/Windows CI before authorized merge.
+- [ ] Verify reviewed-head ancestry/tree identity and native macOS/Windows CI
+  on the actual merge commit before advancing.
+
+Plan-bound coherent capture, sensitivity preflight, private publication,
+recovery refs, restore, receipts and cleanup remain pending. Standard fuzz seed
+tests do not resolve or diagnose Task8A's optional timed-fuzz timeout.
+
+At the implementation checkpoint, rejection assertions failed against a nil
+stub before the wrapper was implemented. The encoded-administrative-overhead
+fixture was corrected to retain required diagnostic files; a local ordinary
+Go `-overlay` nil stub then reproduced that assertion failure without changing
+production. Additional valid-gzip malformed/traversing tar and 4097-entry
+rejections were also checked against the nil overlay. Valid and non-mutation
+controls that already passed the stub are not claimed as behavioral RED.
+
+The independent native integration worker's test arrived after implementation;
+the same local overlay produced six intended rejection assertion failures,
+while both valid controls and source-preservation cleanup passed. The actual
+implementation subsequently passed all eight native leaf cases. Windows keeps
+the portable composition and explicitly skips only the Unix symlink scenario.
+
+Fresh controller Go 1.26.5 darwin/arm64 verification passed: focused bundle
+tests (1.301s), `go test -count=1 ./...` (snapshot 10.861s),
+`go test -race -count=1 ./...` (snapshot 31.917s), `go vet ./...` and
+`go build ./...`. `gofmt -l .` and `git diff --check` printed nothing; source
+hashes were unchanged. Ordinary suites exercised existing fuzz seeds, not a
+timed fuzz campaign. Native Windows/Linux execution is not claimed locally;
+final-head CI, independent reviews and actual-merge CI remain revision-bound
+PR requirements, not satisfied by this historical checkpoint.
+
+The first independent task review of `5c54990` found no production defect but
+identified two Minor test-oracle gaps: an exact expanded-tar acceptance boundary
+and present-but-empty opaque payloads. The controller reproduced both surviving
+mutants against the original bundle suite. New standard tar/gzip boundary tests
+reject a `maximumBytes-1` decoder mutation at the exact fit; ten positive
+nil/empty-payload cases reject a length-as-presence mutation. Separate missing-key
+and empty-gzip controls retain fail-closed behavior. The unchanged production
+wrapper passes the strengthened focused suite (1.443s). These are regression
+oracle corrections, not runtime defects; they still require exact-head re-review
+and renewed native CI before merge.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**
-- Create: `internal/snapshot/manifest.go`
+- Reuse: `internal/snapshot/manifest.go` and the delivered integrity codecs
 - Create: `internal/snapshot/create.go`
 - Create: `internal/snapshot/create_test.go`
 - Create: `internal/snapshot/restore.go`
