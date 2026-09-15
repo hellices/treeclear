@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8G bounded whole-bundle verification
+- Status: In progress — Task 8H bounded read-only source capture
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -12,7 +12,7 @@ merely because the harness is available.
 
 > Execute this plan task-by-task using an isolated Git worktree, test-driven development, and a review checkpoint after every task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, and #12 are merged: the standard development baseline, Tasks 1–6,
+PRs #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, and #13 are merged: the standard development baseline, Tasks 1–6,
 the read-only `scan` command brought forward from Task 7, and Task 7A's pure
 candidate fingerprints and policy digests, and Task 7B's private authenticated
 plan storage and Task 7C's plan builder and `plan`/`explain` commands are
@@ -29,9 +29,11 @@ read-only collection of explicitly supplied source leaves and their parents
 also passed independent review and native CI on the final head and merge
 commit. Task 8F's exact guarded status-derived untracked paths also passed
 independent review and native macOS/Windows CI on the final head and actual
-merge. Task 8G composes the existing pure codecs into bounded whole-bundle
-verification without changing the legacy hash-only payload contract.
-Task 8 coherent capture, publication and restore, and Tasks 9–11 cleanup and
+merge. Task 8G's bounded whole-bundle verification passed independent review
+and native macOS/Windows CI on its final head and actual merge, without changing
+the legacy hash-only payload contract. Task 8H now composes the guarded readers
+into bounded, revalidated source capture.
+Task 8 source capture, publication and restore, and Tasks 9–11 cleanup and
 recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
@@ -2829,10 +2831,10 @@ are sufficient. No framework, dependency, workflow or global-state changes.
   from the unchanged successful hash-only control; exercise normal fuzz seeds.
 - [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
   `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
-- [ ] Open a scoped PR, obtain independent task and whole-branch reviews, fix
+- [x] Open a scoped PR, obtain independent task and whole-branch reviews, fix
   all actionable findings and repeat to clean; audit complete remote reviews
   and require exact-final-head native macOS/Windows CI before authorized merge.
-- [ ] Verify reviewed-head ancestry/tree identity and native macOS/Windows CI
+- [x] Verify reviewed-head ancestry/tree identity and native macOS/Windows CI
   on the actual merge commit before advancing.
 
 Plan-bound coherent capture, sensitivity preflight, private publication,
@@ -2872,6 +2874,490 @@ and empty-gzip controls retain fail-closed behavior. The unchanged production
 wrapper passes the strengthened focused suite (1.443s). These are regression
 oracle corrections, not runtime defects; they still require exact-head re-review
 and renewed native CI before merge.
+
+### Remaining Task 8 lifecycle
+
+Task8G closure: PR #13 merged reviewed head
+`5fe8cb288898a31342b14d1053ef93e68c307f64` as
+`d27094eddd453a8e083cf7278eaa43f06eac369f`. Both independent AI re-reviews
+closed the two oracle findings with no further actionable findings. The
+Copilot source-walk claim was disproved and its thread resolved; final Copilot
+review had no new comments and retained its human-review recommendation.
+These are not human approval. Native macOS/Windows runs `34809376066` and
+`34810006969` passed on the reviewed PR checkout and actual merge respectively;
+parents, reviewed-head ancestry and complete tree equality were verified.
+
+A subsequent read-only AI boundary review of the identical merged tree found
+no new actionable finding. Nine extra finite probes passed normally and under
+race detection. A current-source, isolated-cache 20-second/four-worker manifest
+fuzz run passed 1,111,337 executions on Go1.26.5 darwin/arm64. This is additional
+bounded evidence, not a diagnosis or waiver of Task8A's original timed-fuzz
+failure. The complete GitHub review/thread audit was clean. Raw inputs and
+reports remain local. Source capture and the remaining lifecycle stay pending.
+
+### Task 8H: Bounded read-only source capture (scoped slice)
+
+Execute the existing Task8 capture requirement before coupling it to private
+publication or restoration. Reuse the guarded Git, administrative and untracked
+readers. Compare two bounded collections, including actual bytes and original
+modes, rather than treating unchanged status counts as source stability.
+
+**Files:**
+- Create: `internal/snapshot/capture_source.go`
+- Create: focused `internal/snapshot/capture_source_*.go` helpers only as needed
+- Test: `internal/snapshot/capture_source_test.go`
+- Test: `internal/snapshot/capture_source_integration_test.go`
+
+Review-driven integration corrections also update `internal/git/client.go`,
+add the bounded `internal/git/readonly_index.go` preflight and focused Git
+regressions, and document the conservative unsupported-layout boundary in
+`README.md`. Existing raw/status command-sequence fixtures retain their exact
+guard assertions with the additional index-free lookups.
+
+**Interface:**
+
+```go
+type SourceCapture struct {
+	WorktreeList          []byte
+	Status                git.StatusSnapshot
+	StagedPatch           []byte
+	UnstagedPatch         []byte
+	AdministrativeEntries []AdminEntry
+	UntrackedEntries      []UntrackedEntry
+}
+
+func CaptureSource(ctx context.Context, client *git.Client, expected domain.Worktree, maximumBytes int64) (SourceCapture, error)
+```
+
+The public boundary accepts the existing concrete Git client. Use a private
+read-only interface and narrow injected file readers for deterministic tests;
+do not introduce another Git parser, generic resource framework or mutation API.
+The supplied worktree must be a known, path-safe, non-prunable linked worktree
+with canonical physical identities and no collection errors. Require valid
+HEAD/branch-or-detached identity, nonnegative status counts and valid index/admin
+hashes. This capture API is not an eligibility decision: it can read a dirty,
+locked or current linked worktree but never authorizes its removal.
+
+Validate and observe repository, common-Git, worktree and administrative root
+directory identities before collection. Require the exact supplied canonical
+paths, a non-primary registered target, and an administrative directory strictly
+inside its common Git directory. Retain native file identities across both
+collections and recheck them and canonical paths before returning. A replaced,
+aliased, inaccessible or conflicting root fails closed, even if the new path
+contains identical bytes. Reuse guarded native opening primitives where needed.
+
+Each collection performs the following bounded sequence:
+
+1. Read `ListWorktreesRaw`; require a single exact matching target, matching
+   primary repository/common identities and registered HEAD/branch/lock state.
+2. Enrich that listed target with `InspectWorktree`; require known state,
+   no errors and agreement with the supplied source identity, status, hashes
+   and observed Git metadata. Do not trust a stale supplied record in place of
+   fresh inspection. Resolve the target's effective common Git directory and
+   verify its native identity against the primary common store before any
+   index/content reads. Native aliases are not physically distinct stores.
+   Bind primary administrative identity to that common store; a linked
+   administrative directory must be an immediate worktree registration with
+   reciprocal `.git`/`gitdir` evidence for the selected native worktree root.
+   Read these pointers through bounded, checked native handles before hashing,
+   and recheck routing after inspection's Git reads. Resolve relative pointer
+   records against their owning directories in filesystem traversal order,
+   before lexical normalization can remove a symlink/`..` component. Validate
+   Git's literal backlink `/.git` suffix before resolving its parent; an alias
+   file is not a substitute for that registration marker. Native-equivalent
+   terminal/intermediate directory aliases are allowed, while pointer-file
+   leaves remain nofollow. Missing, malformed or conflicting routing evidence
+   does not authorize index/content reads.
+3. Read `StatusSnapshot`; require agreement with the inspected status and its
+   exact selected leaf count. Retain raw bytes and exact untracked paths.
+4. Read guarded staged and unstaged binary patches, administrative diagnostics,
+   and the explicitly selected untracked leaves/parents, in that order.
+5. Preserve existing administrative and untracked validation/capacity limits;
+   require the returned untracked leaves and structural parents to match the
+   explicit Git selection. Recheck context and root identities.
+
+Clone retained mutable values before invoking subsequent collectors so a
+collector reusing its own buffers cannot erase evidence of a change. Compare
+both complete raw worktree/status outputs, patches, selection, administrative
+paths/kinds/modes/data, untracked paths/kinds/modes/data/link text and inspected
+Git source fields. Differences fail closed; never retry until evidence happens
+to agree. Return an owned first capture only after all comparisons succeed.
+Cancellation or any error returns the complete zero `SourceCapture`, preserving
+the original cause with `errors.Is`; no partial capture is usable.
+
+Require a positive safely representable source-byte limit. Each collection
+independently accounts, using subtraction, for all four raw Git byte sequences,
+administrative file bytes, untracked regular-file bytes and symlink target text.
+Check each result before advancing to the next collector. Fixed entry/path
+limits still bound structural metadata. This source-content limit is not a
+whole-heap quota or Task8G's encoded/expanded bundle limit; temporary collector
+allocations and the second comparison copy are not described as fitting one
+retained-copy budget. Existing per-command and per-codec bounds remain intact.
+
+Expose `ErrSourceInvalid` for every failure, `ErrSourceChanged` for changed
+observations, and `ErrSourceLimit` for invalid budgets or known byte/capacity
+failures. Preserve context, filesystem, Git and existing codec error causes;
+do not classify arbitrary Git errors by matching their text.
+
+The shared Git boundary preflights each `ls-files`, `status` and `diff` dispatch
+using an index-free administrative-directory lookup and bounded native name
+enumeration. Any immediate `sharedindex.*` backing entry, including retained
+remnants and case aliases, makes the layout unsupported until a non-mutating
+split-index implementation exists. Do not read/rewrite the split index or
+restore its timestamps. These preflights retain the existing non-atomic,
+non-ABA-proof limits; they do not establish a filesystem transaction.
+
+Matching bounded observations are not a filesystem transaction or proof against
+unobserved change-and-revert (ABA) activity or a malicious same-user writer.
+Later apply must still authenticate/revalidate the full plan and verify every
+published snapshot before removal. Capture creates no archive, manifest,
+recovery ref, file, receipt, process/provider invocation, network request or
+cleanup action. Private publication, sensitivity preflight, restoration and
+receipt/cleanup integration remain subsequent independently reviewed slices.
+
+Harness assessment: reuse ordinary Go tests, injectable narrow readers/runners,
+existing codecs, `internal/testutil` owned temporary repositories and native
+macOS/Windows CI. No dependencies, global-state mutations, custom gates or
+additional worktrees are needed.
+
+- [x] Observe assertion RED for invalid identity/unknown state, changed roots,
+  changed Git/raw/administrative/untracked evidence, aliased collector buffers,
+  incomplete/extra selection, each byte contribution and exact limits,
+  preserved errors/cancellation and zero results on every failure.
+- [x] Implement the minimal read-only composition and verify focused GREEN.
+- [x] Prove native Git composition, dirty binary/ignored/untracked inputs,
+  supported native symlink behavior, deterministic mid-capture changes and
+  unchanged source/index evidence using owned temporary repositories.
+- [x] Run `go test -count=1 ./...`, `go test -race -count=1 ./...`,
+  `go vet ./...`, `go build ./...`, empty `gofmt -l .` and `git diff --check`.
+- [ ] Open a scoped PR, fix all actionable task/whole-branch review findings,
+  repeat to clean, and audit all remote review bodies and threads.
+- [ ] Require native macOS/Windows CI for the exact final head, use the
+  authorized exact-head guarded merge, then verify actual-merge identity and
+  native CI before advancing.
+
+At the implementation checkpoint, the unit and native integration rejection
+assertions failed against an explicit unimplemented stub before production
+implementation. Missing-API compile failures are recorded separately and are
+not behavioral RED. Two additional failing regressions exposed inconsistent
+lock state and a duplicate primary path marked non-primary; both are fixed.
+All 24 focused unit/native test groups subsequently passed normally (17.405s)
+and under race detection (19.515s), including exact aggregate budget boundaries,
+mutable-buffer ownership, all root open/stat/close failures, deterministic
+mid-capture changes, preserved causes and complete zero failure results.
+
+Controller Go1.26.5 darwin/arm64 verification passed `go test -count=1 ./...`
+(snapshot 27.112s), `go test -race -count=1 ./...` (snapshot 52.656s),
+`go vet ./...` and `go build ./...`. `gofmt -l .` and `git diff --check`
+printed nothing; all Go source hashes were identical before and after the
+matrix. Native Windows execution, independent reviews and final-head/actual-
+merge CI remain pending revision-bound requirements. These tests neither
+diagnose nor waive Task8A's historical optional timed-fuzz timeout. Source
+capture remains read-only and does not establish an atomic filesystem snapshot,
+sensitivity authorization, publication, a receipt or cleanup eligibility.
+
+Initial-head CI `34833141007` passed on macOS but failed six Windows unit
+fixtures: moving the repository/common root while descendant roots were pinned
+returned access denied before a replacement occurred. Independent task review
+identified this as a supported-platform harness blocker, not a production
+acceptance of changed source data. Production pinning remains unchanged.
+
+The revised fixtures prepare matching replacement directories outside all
+observed roots before capture. They verify that an unpinned rename succeeds;
+if Windows denies an ancestor move while capture handles are held, they require
+an unchanged complete capture and native identity, no moved original, and a
+successful rename after capture closes its handles. Other errors remain test
+failures; successfully replaced roots must still produce `ErrSourceChanged`.
+Separate substituted native observations exercise all four roots at all three
+collection boundaries without depending on whether Windows allows the move.
+All 12 rejection assertions fail when a local Go overlay disables the observed
+identity comparison, despite equal size/mode/mtime; unchanged production passes.
+
+The revised root tests passed locally (0.680s). The renewed full normal/race
+matrices passed (snapshot 31.465s/56.267s), as did vet/build, empty formatting
+output and diff checks, with identical Go/module hashes before and after.
+These are local macOS results; the revised exact-head native Windows controls
+and both independent re-reviews still require completion before merge.
+
+The fixture-only head `c7491b8933a34061e7562bca3b44bc0eb8975eac` subsequently
+passed native macOS/Windows CI `34834017678`; the task re-review found no new
+fixture issue. Whole-branch AI integration review nevertheless found two
+Important source-contract defects and one Minor error-category defect: the
+effective common store could differ from the pinned primary store; native Git
+split-index reads refreshed backing-file mtimes even on capture failure; and a
+detected intra-inspection HEAD change lacked `ErrSourceChanged`. These findings
+were reproduced on that exact head before fixes, independently of passing CI.
+The controller's three original probes failed in 3.975s. Merge remains blocked
+until all fixes receive revision-bound review and renewed native CI.
+
+Durable regressions now cover common-directory conflicts before index reads,
+HEAD/branch/attached-detached change causes, unchanged opaque read errors and
+administrative mtime preservation, including split-index refusal. They failed
+before the behavior changes. The identity correction compares native directory
+identities and preserves legitimate case aliases; a self-review regression
+first exposed and then corrected an over-strict lexical comparison. The shared
+Git client emits a typed recognized-state-change cause, which capture maps to
+`ErrSourceChanged` while preserving the original cause. The updated native
+identity/cause/split-index regressions pass locally (Git 3.129s, snapshot 2.981s).
+These focused results are not yet whole-matrix, independent re-review or native
+Windows acceptance of the new Git-boundary changes.
+
+The integrated R3 correction rejects immediate `sharedindex.*` backing entries
+before every `ls-files`, `status` and `diff` dispatch. Native primary/linked
+fixtures also introduce a split index after `ls-files` and prove that the next
+dispatch refuses without further byte or mtime changes. Directory enumeration
+uses bounded name-only batches and retained native identities. Explicit entry,
+path and requested-read capacity failures expose `git.ErrIndexPreflightLimit`,
+which capture maps to `ErrSourceLimit`; wrapped and canceled causes are retained,
+and identical opaque error text is not reclassified. The source mapping's 24
+selected typed-error assertions failed before the mapping and subsequently
+passed, including the complete collector-error matrix (0.853s).
+
+The first integrated normal suite exposed one remaining legacy status-selection
+command-sequence expectation. Its focused assertion failed (0.586s), then passed
+(0.695s) with the two required index-free preflights and the single-status-payload
+assertion preserved. The renewed full `go test -count=1 ./...` passed (Git
+17.884s, snapshot 33.450s); `go test -race -count=1 ./...` passed (Git 20.258s,
+snapshot 58.702s). `go vet ./...` and `go build ./...` exited zero; `gofmt -l .`
+and `git diff --check` printed nothing, with identical Go/module hashes before
+and after. These are Go1.26.5 darwin/arm64 results. The retained-index-ID test
+helper also now uses handle-based observations; its pre-fix lifetime regression
+passed on Darwin, so no native Windows pre-fix RED is claimed. Independent R3
+re-reviews and exact-head/actual-merge native CI remain required before advancing.
+
+R3 head `aea68df2c0c80a5908bf9281f7262fcbaf16cb85` passed macOS CI, but run
+`34838070056` failed 14 Windows fault-fixture leaf assertions: `File.Stat` on an
+already closed handle reports `ERROR_INVALID_HANDLE`, not `fs.ErrClosed`.
+The source snapshot suite passed on Windows (51.074s); its race/build steps
+were not reached. The corrected test requires exactly one successful native
+`Close` and an unusable post-close handle without assuming a platform-specific
+`Stat` error. Production behavior is unchanged. A local overlay omitting the
+close still fails the corrected assertion (0.478s); unmodified production
+passes the focused fixture (0.491s). The renewed full normal/race matrices
+pass (snapshot 33.995s/59.198s), as do vet/build, empty formatting/diff checks
+and unchanged Go/module hashes. Final-revision independent review and native
+macOS/Windows CI remain required; the failed run is not treated as acceptance.
+
+R4 head `722631d` passed native macOS/Windows CI `34838794928`, bound to
+tree `02f6399a8bce685257f2ca332e141e2249c5cfb5`. Independent AI review still
+found actionable ordinary-index refresh, same-store administrative routing,
+native Windows attribute, preflight-order and capacity-classification gaps.
+These findings block merge regardless of the passing run. The R3 Windows
+failure count is corrected to 14 leaf assertions (seven stages with two
+cancellation variants); parent/package summaries are not additional cases.
+
+The R5 test-first checkpoint disables `diff.autoRefreshIndex` in every guarded
+Git invocation, including against repository configuration. Native
+identical-content inode replacement was RED with default/true settings, then
+GREEN for default/true/false settings with unchanged source/index bytes and
+mtimes (5.719s). Inspection now preflights split-index names before hashing;
+four primary/linked and present/missing-index cases were RED, then GREEN.
+Legacy metadata byte/entry and strict untracked-selection limits now preserve
+`git.ErrReadLimit`; native composition and typed/wrapped/canceled/opaque-error
+controls pass (9.616s). Large legacy status summaries keep their complete
+counts. Missing native evidence fails as invalid rather than changed; six
+portable assertion failures now pass, including resource-lifetime controls.
+
+Windows-specific native attribute tests are included before their production
+fix so the missing REPARSE/DEVICE/shape checks can be observed on a native
+Windows runner. Local cross-compilation is not native RED or acceptance.
+This checkpoint is deliberately not merge-ready. Same-store administrative
+routing, Windows correction, exact-final-tree independent re-review, both
+native CI platforms, remote-thread disposition and actual-merge verification
+remain pending. No source publication, cleanup or release is authorized by
+this checkpoint's test results.
+
+Checkpoint `43020de`, tree `94ab02ac00acffd3b11cc8cf849b3dd3a1644a43`, passed
+the complete local Go matrix from an owned `git archive` export with identical
+Go/module hashes. Native CI `34842184006` passed macOS and failed exactly ten
+Windows attribute/shape leaf cases, on Go 1.26.5. Its checkout
+`5ac85f385c36eb78acf8cdb8fe065e27b4f21efd` has that exact tree and parents
+`d27094e` and `43020de`. This is actual Windows assertion RED, not inferred
+from a cross-build, and the failed run is not acceptance.
+
+The follow-up keeps the Windows regressions unchanged and validates a nonnil
+native attribute structure, rejecting REPARSE/DEVICE bits before guarded
+opens/enumeration and identity comparisons. Missing or wrong native evidence
+is invalid, not an observed worktree change. Local scoped tests and race
+controls pass (3.110s/4.325s); native Windows GREEN still requires new CI.
+
+Administrative routing now checks primary/common and linked-registration
+native identities and both pointer directions before hashes and after Git
+reads. The pointer reader retains native handles, bounds content to 32 KiB,
+checks native types and observations, and preserves read/close/cancellation
+failures. Native tests reproduced same-store misrouting, six malformed or
+unregistered layouts, and a persistent mid-inspection routing change before
+the fix. Those eight rejection cases and three relative-pointer controls now
+pass (5.118s); the broader routing/inspection controls pass (10.910s).
+Additional source-capacity controls cover both initial metadata size and
+streaming growth, exact/overflow directory counts and complete legacy status
+summaries. These changes still require independent corrective review and
+exact-final-tree native CI; no cleanup, publication or release is complete.
+
+The integrated corrective candidate passed `go test -count=1 ./...`
+(Git 24.088s, snapshot 47.070s), `go test -race -count=1 ./...`
+(Git 30.803s, snapshot 77.055s), `go vet ./...` and `go build ./...`.
+`gofmt -l .` and `git diff --check` printed nothing. Go/module source hashes
+were identical before and after this local Darwin matrix. Independent review
+and native Windows execution of the corrective implementation remain pending;
+this passing local matrix is not merge or release clearance.
+
+Corrective candidate `ca11055` passed both native platforms in CI
+`34843816976`, but independent routing review found an Important traversal
+error and a Minor alias regression. `filepath.Join`/`Clean` collapsed
+symlink/`..` before native resolution, allowing both static wrong-admin source
+captures and a persistent mid-read backlink change. A terminal directory alias
+to the same administrative target was also rejected while an intermediate
+alias worked. Native CI success did not override either finding.
+
+R6 durable native regressions reproduced both full-capture bypasses (1,563
+and 1,426 retained bytes in that local RED run), absolute/relative mid-read
+changes, and three rejected valid alias/traversal layouts. The fix preserves
+the raw relative base, resolves filesystem traversal with context and path
+bounds, and validates backlink marker syntax before resolving its directory.
+The nofollow pointer-file reader and its byte/type/identity/close safeguards
+are unchanged. The complete focused routing/inspection controls now pass
+(Git 16.950s); all three full-source refusal cases pass with zero output,
+preserved change category and unchanged borrowed-index evidence (snapshot
+5.314s). Fresh full-matrix, independent review and native CI evidence remain
+required for this new revision.
+
+The initial administrative-directory observation also retains the raw Lstat
+metadata instead of silently replacing it with opened-handle metadata. Native
+fixtures first reproduced eight lost-change assertions: mtime changes with
+close/cancellation combinations, a replacement that reached enumeration, and
+Unix identity/mode/size disagreements. The correction rejects observed
+mode/size/mtime differences and, on Unix, retained native-ID differences before
+returning the eager handle observation. Windows raw Lstat can load file IDs
+lazily from a later pathname, so it is not treated as an eagerly pinned original
+ID; its available metadata is checked and subsequent comparisons still use
+eager File.Stat identities. Identical-metadata replacement before the first
+Windows handle pin remains outside this finite-observation guarantee.
+
+Common-store characterization controls accept native-equivalent terminal and
+intermediate aliases and reject a persistent canonical-root substitution before
+hashes or index-reading commands. They pass on both the routing correction and
+unchanged `ca11055` production through a test-only overlay. Native Windows
+junction controls are included, not inferred from Unix symlink traversal.
+The requested raw-alias refusal still needs independent adjudication against
+the canonical architecture's platform-aware alias support; it is not silently
+accepted or dismissed because existing tests pass.
+
+The independent R6 task reviewer stopped with provider `cyber_policy` HTTP 422
+and produced no R6 verdict. No substitute approval, alternate-model retry or
+policy bypass is used. Local correction and native CI may proceed, but final
+independent task/whole-branch review and unresolved remote threads still block
+merge and progression to a dependent stage.
+
+The frozen R6 source passed `go test -count=1 ./...` (Git 34.731s, snapshot
+63.005s), `go test -race -count=1 ./...` (Git 42.872s, snapshot 104.574s),
+`go vet ./...`, and `go build ./...` on Go 1.26.5 darwin/arm64.
+`gofmt -l .` and `git diff --check` printed nothing. All tracked/untracked
+non-ignored source-file hashes were identical before and after the full matrix.
+The initial-observation close controls also require one successful real Close
+and an unusable handle, without assuming Windows reports `fs.ErrClosed`;
+opaque-error and no-op-close assertion REDs preceded that portable oracle.
+Native macOS/Windows CI on the published R6 tree remains pending, as does the
+blocked independent review. No merge or production acceptance is claimed.
+
+R6 candidate `7e21a4e`, tree `d45c26786bafab5727708288ad765192a5117f61`,
+passed macOS CI `34848951210`; Windows failed exactly two administrative-alias
+fixture preconditions before reaching their product assertions. The Windows
+snapshot normal suite passed (88.919s), but race/build/source-unchanged steps
+were not reached. Checkout `e34107e6abec2d2ca2dc429a9f6402175f15d190` has the
+candidate tree and parents `d27094e`/`7e21a4e`.
+
+Installed Go 1.26.5 Windows source confirms that ordinary junction mount points
+are not classified as ModeSymlink for EvalSymlinks traversal. A terminal
+junction can be retained rather than resolved, and an intermediate junction
+can fail. The fixture's assumed EvalSymlinks canonical string was therefore not
+a valid native identity oracle. The next test-first checkpoint uses eagerly
+opened native identities and actual Git routing as fixture preconditions, and
+directly exercises administrative-pointer resolution through both junction
+positions. No toolchain, GODEBUG setting, fixture skip, or production relaxation
+is used. Native product assertion RED must be observed before correcting the
+Windows pointer resolver; this checkpoint is not merge-ready.
+
+Checkpoint `e584e2e`, tree `6b6cae33fa23b4e50e912377830025d25374821b`,
+passed macOS CI `34850675274`. Windows produced two genuine pointer-resolution
+assertion failures, plus two separate Git fixture-precondition failures; the
+latter are not counted as product RED. Checkout
+`e75cf9efd5d5da8562c0531654d7b69e963ed117` has that exact tree and parents
+`d27094e`/`e584e2e`. Native handles identified the intended junction targets,
+but Git rejected the administrative-alias layout before the inspection call.
+
+The next controlled fixture records the verified common directory explicitly
+instead of depending on the alias's lexical parent for relative `commondir`.
+It still requires ordinary Git inspection, native alias identity, and actual
+Git directory selection before product assertions; no unexpected Git error is
+accepted as a passing fixture or a skip. Direct tests cover both pointer and
+Git-output canonicalization. Separately, a local assertion RED for malformed
+UTF-8 pointer input precedes explicit encoding validation (focused GREEN
+0.408s), preventing lossy native encoding conversion. Native directory
+resolution remains unchanged in this checkpoint and still needs correction.
+
+Checkpoint `e06c334`, tree `68f18f54ecbe6052182cfd104fef7f2e0d94ea61`,
+passed macOS CI `34852039116`. Windows reached all native Git and identity
+fixture preconditions, then failed four product leaf cases with six assertion
+messages: two administrative-alias inspections and two direct junction cases,
+each covering both pointer and raw Git-output resolution. The Windows snapshot
+normal suite passed (83.741s); race/build/source-unchanged steps were not reached.
+Checkout `9e282d85657c9b3da6fd68eb6642c6751c383388` has that exact tree and
+parents `d27094e`/`e06c334`. These are genuine native REDs, not setup failures.
+
+The corrective candidate leaves those native Windows tests unchanged. Both
+pointer and Git-output resolution use one bounded, cancellable private path
+boundary. Unix retains filesystem-order EvalSymlinks traversal; Windows uses
+native full/final-path APIs with a held read-attributes handle, validates the
+eager target observations, and reopens the final name without following a
+terminal reparse point to compare native identity and metadata. Explicit
+directory aliases remain supported; guarded pointer-file leaves and canonical
+source-root checks are unchanged. Native path buffers have fixed capacity,
+strict terminator/NUL and lossless UTF-16 checks, and decoded UTF-8 byte bounds.
+Errors, checked-close failures and cancellation return no usable path.
+
+A canceled raw Git-output result produced local assertion RED (0.474s) before
+the shared boundary correction. Controlled portable native-buffer tests also
+produced four RED leaves for missing termination, embedded NUL and unpaired
+high/low surrogates before strict decoding; these are not malformed native
+filesystem fixtures. Focused pointer, cancellation and buffer controls passed
+(0.448s), as did Windows test-binary cross-compilation, which is not native
+execution. The frozen corrective source passed `go test -count=1 ./...`
+(Git 34.823s, snapshot 60.493s), `go test -race -count=1 ./...` (Git 40.239s,
+snapshot 90.415s), `go vet ./...`, and `go build ./...` on Go 1.26.5
+darwin/arm64. `gofmt -l .` and `git diff --check` printed nothing; every
+non-ignored source-file hash was unchanged across the matrix. Native Windows
+execution of this correction is still pending. Finite pathname and handle
+observations are not atomic or ABA-proof, and the initial Windows raw-Lstat
+identity limitation remains. Independent review is still blocked; neither
+these corrections nor CI alone authorize merge or dependent work.
+
+Corrective candidate `0431776`, tree `e9a91546f773b9ed76a75fec5e333dd05e3e190e`,
+passed the full macOS matrix in CI `34855784108`, but Windows failed 74 test
+leaves across inspection-dependent suites, including fixture preconditions.
+These are cascading failures, not 74 independent findings: native
+GetFullPathName retains the terminal separator from a literal backlink's
+parent, which the strict canonical-form opener rejects. An existing ordinary
+linked-worktree inspection assertion demonstrably failed before correction.
+Windows race/build/source-unchanged steps were not reached. Checkout
+`f8bff9eb96150b52b7c98432a26bd4d75e6ef918` has the exact candidate tree and
+parents `d27094e`/`0431776`; this run is not native Windows acceptance.
+
+The follow-up cleans only the already-native-expanded Windows full path before
+the unchanged canonical opener. It does not lexically clean raw Unix pointer
+traversal, weaken the canonical-form validator, or change pointer-file nofollow
+and native identity comparisons. Added focused controls cover terminal and
+repeated separators and terminal dot forms through both pointer and raw Git
+resolution. They pass on Darwin before this Windows-only correction (0.799s),
+so that result is not claimed as native RED; the failed native ordinary
+inspection is the pre-fix behavioral evidence. Renewed focused controls passed
+(0.954s), followed by the full local `go test -count=1 ./...` (Git 40.906s,
+snapshot 69.123s), `go test -race -count=1 ./...` (Git 41.958s, snapshot
+95.884s), `go vet ./...`, and `go build ./...` on Go 1.26.5 darwin/arm64.
+Formatting and whitespace checks printed nothing, and every non-ignored
+source-file hash remained unchanged across the matrix. Windows test-binary
+cross-compilation also passed, without claiming native execution. Native
+Windows verification and independent review remain required before merge.
 
 ### Remaining Task 8 lifecycle
 

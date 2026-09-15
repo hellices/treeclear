@@ -26,6 +26,11 @@ const (
 	gitReadTimeout  = 30 * time.Second
 )
 
+var (
+	ErrWorktreeChanged = errors.New("Git worktree state changed")
+	ErrReadLimit       = errors.New("Git read limit exceeded")
+)
+
 type Client struct {
 	Runner       execx.Runner
 	BaseBranches []string
@@ -42,16 +47,25 @@ func (client *Client) run(ctx context.Context, directory string, arguments ...st
 	if directory == "" && !(len(arguments) == 1 && arguments[0] == "--version") {
 		return execx.Result{}, errors.New("Git working directory is required")
 	}
+	if len(arguments) != 0 {
+		switch arguments[0] {
+		case "ls-files", "status", "diff":
+			if err := client.rejectSplitIndex(ctx, directory); err != nil {
+				return execx.Result{}, fmt.Errorf("Git read-only index preflight: %w", err)
+			}
+		}
+	}
 	environment := execx.SanitizedEnvironment(os.Environ(), map[string]string{
 		"LC_ALL": "C", "LANG": "C", "GIT_OPTIONAL_LOCKS": "0",
 		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
 		"GIT_ATTR_NOSYSTEM":   "1",
 		"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never", "GIT_NO_LAZY_FETCH": "1",
-		"GIT_CONFIG_COUNT": "4",
+		"GIT_CONFIG_COUNT": "5",
 		"GIT_CONFIG_KEY_0": "core.fsmonitor", "GIT_CONFIG_VALUE_0": "false",
 		"GIT_CONFIG_KEY_1": "protocol.allow", "GIT_CONFIG_VALUE_1": "never",
 		"GIT_CONFIG_KEY_2": "log.showSignature", "GIT_CONFIG_VALUE_2": "false",
 		"GIT_CONFIG_KEY_3": "core.attributesFile", "GIT_CONFIG_VALUE_3": os.DevNull,
+		"GIT_CONFIG_KEY_4": "diff.autoRefreshIndex", "GIT_CONFIG_VALUE_4": "false",
 	})
 	result, err := client.Runner.Run(ctx, execx.Request{
 		Directory: directory, Name: "git", Args: arguments, Env: environment,
@@ -113,9 +127,31 @@ func (client *Client) verifyWorktreeRoot(ctx context.Context, worktree string) e
 		return err
 	}
 	if !registered.IsDir() || !effective.IsDir() || !os.SameFile(registered, effective) {
-		return fmt.Errorf("effective Git worktree %q differs from registered path %q", root, worktree)
+		return fmt.Errorf("%w: effective Git worktree %q differs from registered path %q", ErrWorktreeChanged, root, worktree)
 	}
 	return nil
+}
+
+func (client *Client) verifyCommonGitDir(ctx context.Context, worktree, expected string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	effective, err := client.CommonGitDir(ctx, worktree)
+	if err != nil {
+		return err
+	}
+	registeredInfo, err := os.Stat(expected)
+	if err != nil {
+		return err
+	}
+	effectiveInfo, err := os.Stat(effective)
+	if err != nil {
+		return err
+	}
+	if !registeredInfo.IsDir() || !effectiveInfo.IsDir() || !os.SameFile(registeredInfo, effectiveInfo) {
+		return fmt.Errorf("%w: effective common Git directory %q differs from repository identity %q", ErrWorktreeChanged, effective, expected)
+	}
+	return ctx.Err()
 }
 
 func (client *Client) gitDirectory(ctx context.Context, repository string, arguments ...string) (string, error) {
@@ -127,7 +163,7 @@ func (client *Client) gitDirectory(ctx context.Context, repository string, argum
 	if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("Git returned a non-absolute metadata path %q", path)
 	}
-	return filepath.EvalSymlinks(path)
+	return resolveGitPath(ctx, path)
 }
 
 func (client *Client) ListWorktrees(ctx context.Context, repository string) ([]domain.Worktree, error) {
@@ -285,17 +321,29 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 	}
 	record("common directory", err)
 	worktree.CommonGitDir = commonDirectory
+	if err == nil {
+		if err := client.verifyCommonGitDir(ctx, worktree.Path, commonDirectory); err != nil {
+			worktree.PathSafe = false
+			record("effective common directory", err)
+		}
+	}
+	if len(failures) != 0 {
+		return worktree, errors.Join(failures...)
+	}
 	worktree.AdminDir, err = client.gitDirectory(ctx, worktree.Path, "--absolute-git-dir")
 	if err != nil {
 		worktree.PathSafe = false
 	}
 	record("administrative directory", err)
 	if worktree.AdminDir != "" && commonDirectory != "" {
-		relative, relErr := filepath.Rel(commonDirectory, worktree.AdminDir)
-		if relErr != nil || !filepath.IsLocal(relative) {
+		if err := verifyInspectionRouting(ctx, worktree); err != nil {
 			worktree.PathSafe = false
-			record("administrative directory", errors.New("metadata is outside the repository common directory"))
+			record("administrative routing", err)
 		} else {
+			if err := rejectSplitIndexDirectory(ctx, worktree.AdminDir, defaultReadonlyIndexOperations()); err != nil {
+				record("read-only index preflight", err)
+				return worktree, errors.Join(failures...)
+			}
 			hashContext, cancel := context.WithTimeout(ctx, gitReadTimeout)
 			worktree.IndexHash, _, err = hashFile(hashContext, filepath.Join(worktree.AdminDir, "index"), maxGitBytes)
 			record("index hash", err)
@@ -317,17 +365,23 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 		if decodeErr != nil || (len(head) != 40 && len(head) != 64) {
 			record("HEAD", errors.New("invalid object ID"))
 		} else if worktree.Head != "" && worktree.Head != head {
-			record("HEAD", errors.New("HEAD changed during collection"))
+			record("HEAD", fmt.Errorf("%w: HEAD changed during collection", ErrWorktreeChanged))
 		}
 		worktree.Head = head
 	}
 	branchResult, branchErr := client.run(ctx, worktree.Path, "symbolic-ref", "--quiet", "HEAD")
-	if !(worktree.Detached && isQuietCommandExit(branchResult, branchErr, 1)) {
+	if isQuietCommandExit(branchResult, branchErr, 1) {
+		if !worktree.Detached {
+			record("branch", fmt.Errorf("%w: HEAD became detached: %w", ErrWorktreeChanged, branchErr))
+		}
+	} else {
 		record("branch", branchErr)
 		if branchErr == nil {
 			branch, valid := strings.CutPrefix(outputLine(branchResult.Stdout), "refs/heads/")
-			if !valid || branch == "" || worktree.Detached || (worktree.Branch != "" && branch != worktree.Branch) {
-				record("branch", errors.New("branch identity changed or is invalid"))
+			if !valid || branch == "" {
+				record("branch", errors.New("branch identity is invalid"))
+			} else if worktree.Detached || (worktree.Branch != "" && branch != worktree.Branch) {
+				record("branch", fmt.Errorf("%w: branch identity changed during collection", ErrWorktreeChanged))
 			}
 			worktree.Branch = branch
 		}
@@ -347,6 +401,12 @@ func (client *Client) InspectWorktree(ctx context.Context, repository string, wo
 			record("commit time", errors.New("invalid commit timestamp"))
 		} else {
 			worktree.LastCommitAt = time.Unix(seconds, 0).UTC()
+		}
+	}
+	if len(failures) == 0 {
+		if err := verifyInspectionRouting(ctx, worktree); err != nil {
+			worktree.PathSafe = false
+			record("administrative routing recheck", err)
 		}
 	}
 	worktree.GitStateKnown = len(failures) == 0
@@ -394,7 +454,7 @@ func hashFile(ctx context.Context, path string, maxBytes int64) (string, int64, 
 		return "", 0, fmt.Errorf("metadata is not a regular file: %q", path)
 	}
 	if metadata.Size() > maxBytes {
-		return "", 0, errors.New("Git metadata exceeds collection limit")
+		return "", 0, fmt.Errorf("Git metadata exceeds collection limit: %w", ErrReadLimit)
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -412,7 +472,7 @@ func hashFile(ctx context.Context, path string, maxBytes int64) (string, int64, 
 		count, readErr := reader.Read(buffer[:])
 		total += int64(count)
 		if total > maxBytes {
-			return "", 0, errors.New("Git metadata exceeds collection limit")
+			return "", 0, fmt.Errorf("Git metadata exceeds collection limit: %w", ErrReadLimit)
 		}
 		digest.Write(buffer[:count])
 		if readErr != nil {
@@ -506,7 +566,7 @@ func readAdminEntries(ctx context.Context, directory string, limit int) ([]os.Di
 		batch, readErr := file.ReadDir(min(128, limit-len(entries)+1))
 		entries = append(entries, batch...)
 		if len(entries) > limit {
-			return nil, errors.New("Git administrative metadata exceeds entry limit")
+			return nil, fmt.Errorf("Git administrative metadata exceeds entry limit: %w", ErrReadLimit)
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) {

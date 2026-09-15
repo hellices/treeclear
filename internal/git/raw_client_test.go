@@ -88,6 +88,8 @@ func TestClientStatusRawPreservesBytesAndLegacyValues(test *testing.T) {
 		switch request.Args[0] {
 		case "config":
 			return execx.Result{ExitCode: 1}, nil
+		case "rev-parse":
+			return readonlyIndexPreflightResult(test, request, directory), nil
 		case "ls-files":
 			if !reflect.DeepEqual(request.Args, []string{"ls-files", "--cached", "--stage", "-v", "-z", "--no-recurse-submodules"}) {
 				test.Fatalf("index guard arguments = %q", request.Args)
@@ -105,12 +107,12 @@ func TestClientStatusRawPreservesBytesAndLegacyValues(test *testing.T) {
 	}))
 	status, raw, err := client.StatusRaw(context.Background(), directory)
 	want := domain.GitStatus{Staged: 2, Unstaged: 1, Unmerged: 1, Untracked: 1}
-	if err != nil || status != want || !bytes.Equal(raw, contents) || !reflect.DeepEqual(commands, []string{"config", "ls-files", "status"}) {
+	if err != nil || status != want || !bytes.Equal(raw, contents) || !reflect.DeepEqual(commands, []string{"config", "rev-parse", "ls-files", "rev-parse", "status"}) {
 		test.Fatalf("raw status = %#v, bytes %q, commands %q, error %v", status, raw, commands, err)
 	}
 	commands = nil
 	legacy, err := client.Status(context.Background(), directory)
-	if err != nil || legacy != want || !reflect.DeepEqual(commands, []string{"config", "ls-files", "status"}) {
+	if err != nil || legacy != want || !reflect.DeepEqual(commands, []string{"config", "rev-parse", "ls-files", "rev-parse", "status"}) {
 		test.Fatalf("legacy status = %#v, commands %q, error %v", legacy, commands, err)
 	}
 }
@@ -149,6 +151,9 @@ func TestClientRawReadsDiscardFailedCommandOutput(test *testing.T) {
 					if request.Args[0] == operation.command {
 						return execx.Result{Stdout: contents, ExitCode: failure.exitCode}, failure.err
 					}
+					if request.Args[0] == "rev-parse" {
+						return readonlyIndexPreflightResult(test, request, directory), nil
+					}
 					if request.Args[0] == "config" {
 						return execx.Result{ExitCode: 1}, nil
 					}
@@ -164,7 +169,7 @@ func TestClientRawReadsDiscardFailedCommandOutput(test *testing.T) {
 				}
 				want := []string{operation.command}
 				if operation.command != "worktree" {
-					want = []string{"config", "ls-files", operation.command}
+					want = []string{"config", "rev-parse", "ls-files", "rev-parse", operation.command}
 				}
 				if !reflect.DeepEqual(commands, want) {
 					test.Fatalf("command order = %q, want %q", commands, want)
@@ -205,6 +210,9 @@ func TestClientRawReadsPreserveFilterAndIndexGuards(test *testing.T) {
 					if request.Args[0] == guard.command {
 						return guard.result, guard.err
 					}
+					if request.Args[0] == "rev-parse" {
+						return readonlyIndexPreflightResult(test, request, directory), nil
+					}
 					if request.Args[0] == "config" {
 						return execx.Result{ExitCode: 1}, nil
 					}
@@ -217,7 +225,7 @@ func TestClientRawReadsPreserveFilterAndIndexGuards(test *testing.T) {
 				}
 				want := []string{"config"}
 				if guard.command == "ls-files" {
-					want = append(want, "ls-files")
+					want = append(want, "rev-parse", "ls-files")
 				}
 				if !reflect.DeepEqual(commands, want) {
 					test.Fatalf("guard command order = %q, want %q", commands, want)
@@ -238,6 +246,9 @@ func TestClientRawReadsDiscardMalformedPorcelain(test *testing.T) {
 			client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 				if request.Args[0] == operation.command {
 					return execx.Result{Stdout: contents}, nil
+				}
+				if request.Args[0] == "rev-parse" {
+					return readonlyIndexPreflightResult(test, request, directory), nil
 				}
 				if request.Args[0] == "config" {
 					return execx.Result{ExitCode: 1}, nil
@@ -384,6 +395,9 @@ func TestClientDiffPreservesSuccessfulBytesAndSafeArguments(test *testing.T) {
 	for _, staged := range []bool{false, true} {
 		client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 			assertRawReadRequest(test, request, directory)
+			if request.Args[0] == "rev-parse" {
+				return readonlyIndexPreflightResult(test, request, directory), nil
+			}
 			if request.Args[0] == "config" {
 				return execx.Result{ExitCode: 1}, nil
 			}
@@ -413,7 +427,7 @@ func assertRawReadRequest(test *testing.T, request execx.Request, directory stri
 		test.Fatalf("unsafe raw read request: %#v", request)
 	}
 	environment := "\n" + strings.Join(request.Env, "\n") + "\n"
-	for _, required := range []string{"GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_KEY_1=protocol.allow", "GIT_CONFIG_VALUE_1=never", "LC_ALL=C"} {
+	for _, required := range []string{"GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_COUNT=5", "GIT_CONFIG_KEY_1=protocol.allow", "GIT_CONFIG_VALUE_1=never", "GIT_CONFIG_KEY_4=diff.autoRefreshIndex", "GIT_CONFIG_VALUE_4=false", "LC_ALL=C"} {
 		if !strings.Contains(environment, "\n"+required+"\n") {
 			test.Fatalf("raw read omitted environment guard %q", required)
 		}

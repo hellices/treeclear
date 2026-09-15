@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -26,7 +27,7 @@ func TestClientStatusSnapshotUsesOneGuardedObservation(test *testing.T) {
 	if err != nil || actual.Status != wantStatus || !bytes.Equal(actual.Raw, contents) || !reflect.DeepEqual(actual.UntrackedPaths, wantPaths) {
 		test.Fatalf("status snapshot = %#v, error = %v", actual, err)
 	}
-	if !reflect.DeepEqual(commands, []string{"rev-parse", "config", "ls-files", "status"}) {
+	if !reflect.DeepEqual(commands, []string{"rev-parse", "config", "rev-parse", "ls-files", "rev-parse", "status"}) {
 		test.Fatalf("status command sequence = %q", commands)
 	}
 }
@@ -65,7 +66,7 @@ func TestClientStatusSnapshotEmptyObservation(test *testing.T) {
 		return statusSnapshotFixtureResult(test, request, directory, nil), nil
 	}))
 	actual, err := client.StatusSnapshot(test.Context(), directory)
-	if err != nil || actual.Status != (domain.GitStatus{}) || actual.Raw != nil || actual.UntrackedPaths != nil || !reflect.DeepEqual(commands, []string{"rev-parse", "config", "ls-files", "status"}) {
+	if err != nil || actual.Status != (domain.GitStatus{}) || actual.Raw != nil || actual.UntrackedPaths != nil || !reflect.DeepEqual(commands, []string{"rev-parse", "config", "rev-parse", "ls-files", "rev-parse", "status"}) {
 		test.Fatalf("empty status observation = %#v, commands %q, error %v", actual, commands, err)
 	}
 }
@@ -110,14 +111,14 @@ func TestClientStatusSnapshotCanceledAfterRoot(test *testing.T) {
 
 func TestClientStatusSnapshotDiscardsCommandFailures(test *testing.T) {
 	directory := test.TempDir()
-	sequence := []string{"rev-parse", "config", "ls-files", "status"}
+	sequence := []string{"rev-parse", "config", "rev-parse", "ls-files", "rev-parse", "status"}
 	for position, command := range sequence {
 		for _, cause := range []error{errors.New("synthetic transport failure"), context.Canceled, context.DeadlineExceeded, execx.ErrOutputLimit} {
-			test.Run(command+"/"+cause.Error(), func(test *testing.T) {
+			test.Run(fmt.Sprintf("%d-%s/%s", position, command, cause), func(test *testing.T) {
 				var commands []string
 				client := NewClient(runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 					commands = append(commands, request.Args[0])
-					if request.Args[0] == command {
+					if len(commands) == position+1 {
 						assertRawReadRequest(test, request, directory)
 						return execx.Result{Stdout: []byte("? partial\x00"), ExitCode: 1}, cause
 					}
@@ -143,8 +144,8 @@ func TestClientStatusSnapshotPreservesGuards(test *testing.T) {
 	}{
 		{"filter", "config", execx.Result{Stdout: []byte("filter.tripwire.clean\nnot-executed\x00")}, []string{"rev-parse", "config"}},
 		{"ambiguous filter exit", "config", execx.Result{ExitCode: 1, Stderr: []byte("configuration warning")}, []string{"rev-parse", "config"}},
-		{"unsafe index", "ls-files", execx.Result{Stdout: []byte("S 100644 " + strings.Repeat("a", 40) + " 0\tfile\x00")}, []string{"rev-parse", "config", "ls-files"}},
-		{"nonzero status", "status", execx.Result{ExitCode: 1, Stdout: []byte("? partial\x00")}, []string{"rev-parse", "config", "ls-files", "status"}},
+		{"unsafe index", "ls-files", execx.Result{Stdout: []byte("S 100644 " + strings.Repeat("a", 40) + " 0\tfile\x00")}, []string{"rev-parse", "config", "rev-parse", "ls-files"}},
+		{"nonzero status", "status", execx.Result{ExitCode: 1, Stdout: []byte("? partial\x00")}, []string{"rev-parse", "config", "rev-parse", "ls-files", "rev-parse", "status"}},
 	} {
 		test.Run(testCase.name, func(test *testing.T) {
 			var commands []string
@@ -207,7 +208,7 @@ func TestClientStatusSnapshotCancellation(test *testing.T) {
 			}))
 			actual, err := client.StatusSnapshot(ctx, directory)
 			assertStatusSnapshotError(test, actual, err)
-			if !errors.Is(err, context.Canceled) || before && len(commands) != 0 || !before && len(commands) != 4 {
+			if !errors.Is(err, context.Canceled) || before && len(commands) != 0 || !before && len(commands) != 6 {
 				test.Fatalf("cancellation returned error %v after commands %q", err, commands)
 			}
 		})
@@ -234,12 +235,12 @@ func TestClientStatusLegacyKeepsLargeSummaries(test *testing.T) {
 		return statusSnapshotFixtureResult(test, request, directory, contents), nil
 	}))
 	status, err := client.Status(test.Context(), directory)
-	if err != nil || status != (domain.GitStatus{Untracked: 4097}) || !reflect.DeepEqual(commands, []string{"config", "ls-files", "status"}) {
+	if err != nil || status != (domain.GitStatus{Untracked: 4097}) || !reflect.DeepEqual(commands, []string{"config", "rev-parse", "ls-files", "rev-parse", "status"}) {
 		test.Fatalf("legacy Status = %#v, commands %q, error %v", status, commands, err)
 	}
 	commands = nil
 	status, raw, err := client.StatusRaw(test.Context(), directory)
-	if err != nil || status != (domain.GitStatus{Untracked: 4097}) || !bytes.Equal(raw, contents) || !reflect.DeepEqual(commands, []string{"config", "ls-files", "status"}) {
+	if err != nil || status != (domain.GitStatus{Untracked: 4097}) || !bytes.Equal(raw, contents) || !reflect.DeepEqual(commands, []string{"config", "rev-parse", "ls-files", "rev-parse", "status"}) {
 		test.Fatalf("legacy StatusRaw = %#v, raw length %d, commands %q, error %v", status, len(raw), commands, err)
 	}
 }
@@ -251,6 +252,9 @@ func statusSnapshotFixtureResult(test *testing.T, request execx.Request, directo
 	var result execx.Result
 	switch request.Args[0] {
 	case "rev-parse":
+		if reflect.DeepEqual(request.Args, []string{"rev-parse", "--absolute-git-dir"}) {
+			return readonlyIndexPreflightResult(test, request, directory)
+		}
 		want = []string{"rev-parse", "--path-format=absolute", "--show-toplevel"}
 		result.Stdout = []byte(filepath.ToSlash(directory) + "\n")
 	case "config":
