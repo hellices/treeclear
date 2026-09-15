@@ -144,7 +144,7 @@ func configuredPlanBuilder(ctx context.Context, dependencies Dependencies, confi
 	}
 	collector := dependencies.Processes
 	if collector == nil {
-		collector = process.Collector{Source: process.GopsutilSource{}}
+		collector = process.Collector{Source: process.NativeSource()}
 	}
 	return plan.Builder{Inventory: loader, Processes: collector, Now: dependencies.Now, Version: dependencies.BuildVersion}, plan.Request{
 		Roots: roots, IntendedApplyMode: domain.ApplyInteractive,

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +76,11 @@ func TestInstalledPreviewRunsNativeScanPlanExplain(test *testing.T) {
 	}
 	if scan.ToolVersion != "installed-runtime-e2e" || (scanExit == 0) != scan.Complete {
 		test.Fatal("installed scan lost its version or incomplete exit status")
+	}
+	for _, warning := range scan.Warnings {
+		if strings.Contains(warning, "invalid process PID 0") {
+			test.Fatal("installed Darwin scan misclassified the native kernel task as an invalid user process")
+		}
 	}
 	test.Logf("native scan complete=%v warnings=%d; a partial result is not complete runtime acceptance", scan.Complete, len(scan.Warnings))
 	var scanned []domain.Candidate
