@@ -1967,9 +1967,23 @@ Task 7C execution details:
   shared destination directory. State and export must be on the same
   filesystem for exclusive hard-link publication; cross-filesystem exports
   fail closed without falling back to an unsafe copy.
+- Follow-up [#19](https://github.com/hellices/treeclear/issues/19) bounds CLI
+  warning previews to five warnings and 512 bytes per escaped, quoted warning,
+  with exact omitted counts, truncation notices and full-JSON guidance. After
+  successful persistence/output, a partial-plan CLI error reports the saved
+  plan ID and incomplete status while unwrapping to the original collection
+  error. Machine JSON, authenticated storage/export, evidence, decisions and
+  unsuccessful collection status remain unchanged.
 - Verification uses the existing temporary Git fixtures, synthetic process
-  sources, injected clocks and native CI; no new harness framework or real
-  workspace smoke test is added.
+  sources, injected clocks and native CI. The #19 installed-runtime regression
+  also invokes the actual macOS executable with real native process collection
+  and an owned active process, checking scan/plan/explain, integrity refusal
+  and fixture preservation. No new harness framework or real workspace smoke
+  test is added. A protective partial collection may pass that regression but
+  is not complete runtime qualification: native visibility/permission design
+  remains open in [#18](https://github.com/hellices/treeclear/issues/18). Task 5's
+  ownership/unknown rules and Task 7C's nonzero partial-result status are not
+  weakened, and PR #14 remains outside this follow-up.
 
 - [x] **Step 4: Run targeted, full, and command smoke tests**
 

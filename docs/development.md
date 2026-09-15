@@ -42,7 +42,7 @@ real user worktrees or sessions in tests.
 
 The read-only CLI integration tests use those repositories plus synthetic
 process sources. Binary help/version tests run without Git on the child PATH.
-Native process smoke tests inspect only the current test process. A test
+Small native process smoke tests inspect only the current test process. A test
 requiring distinct case-sensitive names reports a skip on filesystems that
 cannot create them; cross-compilation does not replace native Windows tests.
 
@@ -56,6 +56,26 @@ check that no configuration/state is created. Only build/module caches are
 reused; helpers never change the parent process's cwd, environment, or Git
 configuration. These Make tests skip on other hosts; all existing native
 Windows tests and required CI checks remain unchanged.
+
+`go test -count=1 ./tests/e2e -run '^TestInstalledPreviewRunsNativeScanPlanExplain$' -v`
+installs the real macOS executable and runs scan, plan, and explain as separate
+OS processes, without injected CLI dependencies or a Go toolchain on the
+runtime PATH. It uses temporary primary/current/dirty/locked/active/clean
+worktrees and an owned sleep process. It checks native process correlation,
+protected decisions, partial-result failure status, private canonical export,
+saved-ID lookup, tamper rejection, bounded diagnostics, and unchanged fixture
+files/indexes/branches/registrations. No real workspace or agent state is used.
+Only command names, exit statuses, byte counts, and warning counts are logged;
+raw native process evidence and authenticated plans are not CI artifacts.
+
+This regression allows a protective partial collection as a passing test, not
+as complete native runtime acceptance. Ordinary-user macOS process visibility
+remains the release blocker tracked by
+[issue #18](https://github.com/hellices/treeclear/issues/18). Complete permission
+and architecture qualification require separate design and review; the test
+does not ignore inaccessible processes, change ownership rules, or elevate
+privileges. The installed runtime test skips outside macOS, without replacing
+any required native Windows checks.
 
 ## Evidence boundaries
 
