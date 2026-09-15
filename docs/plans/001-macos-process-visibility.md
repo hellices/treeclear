@@ -44,7 +44,7 @@ Keep shared collector and policy invalid-PID/unknown handling unchanged.
 - [x] Implement the Darwin source and select it for both scan and plan.
 - [x] Run `go test -count=1 ./internal/process ./internal/cli ./tests/e2e`,
   then all AGENTS.md validation commands and actual installed-binary testing.
-- [ ] Independently review and obtain passing native macOS/Windows CI for
+- [x] Independently review and obtain passing native macOS/Windows CI for
   the scoped PR before merging. Record this as an incomplete fix for #18.
 
 ## Slice B: Prove the permission boundary
@@ -68,6 +68,52 @@ Keep shared collector and policy invalid-PID/unknown handling unchanged.
 Slice B's implementation is intentionally contingent on the end-to-end
 prototype. This is not permission to ship an unproven helper or close #18
 after only Slice A or successful protective failures.
+
+### Slice B1: Test permission feasibility before product integration
+
+Use `superpowers:executing-plans` in this existing worktree. This slice is a
+test-only native experiment, not a new privileged product entry point.
+
+Files: `tests/processprobe/main_darwin.go`,
+`tests/processprobe/main_darwin_test.go`,
+`tests/e2e/process_probe_darwin_test.go`, `.github/workflows/ci.yml`,
+this plan, the permission spec, and `docs/installation.md`.
+
+Consumes: the unchanged `process.NativeSource()` and
+`process.Collector.Collect(context.Context, []domain.Worktree)`.
+Produces: a bounded aggregate-only report from an actual installed test
+executable, never reusable process evidence or a candidate decision.
+
+- [x] Independently review the test-only permission and child-lifetime design.
+- [x] Write failing ordinary Go tests for non-root/caller mismatch, malformed,
+  oversized/non-canonical/trailing requests, challenge/version binding,
+  unknown/error preservation, PID-creation mismatch, output limits and strict
+  rejection of partial collection. Run `go test -count=1 ./tests/processprobe`.
+- [x] Implement only the fixed-purpose probe and make those tests pass; keep
+  the normal install target and all production packages unchanged.
+- [x] Add an opt-in native Go test that installs the probe as the ordinary
+  user, creates disposable Git fixtures, retains an owned active process,
+  verifies microsecond identity, and checks non-mutation and ownership. Its
+  elevated invocation is `/usr/bin/sudo -n -- <exact-installed-probe>` with
+  private stdin/stdout, fixed environment/cwd and bounded lifetime.
+- [x] Add a manual-only CI input for that test. Normal macOS/Windows CI stays
+  mandatory and never elevates. The manual invocation is
+  `TREECLEAR_TEST_PROCESS_PROBE=1 go test -count=1 -run '^TestAuthorizedProcessProbe$' -v ./tests/e2e`.
+  Partial output is a test failure, not a passing qualification.
+- [ ] Run all AGENTS.md checks and the existing installed preview regression.
+  Independently review the implementation before explicitly dispatching the
+  elevated probe. Record exact commit, binary hash, runner and only sanitized
+  aggregates. Keep #18 open regardless of this feasibility-only result.
+
+### Slice A review and merge completion
+
+PR #21 merged as `26c03e4af934eb8e5561d2c15c5b1b209534e841`, with a tree
+identical to reviewed head `cc02ff2651815005a4b65f98090a7146f5a92c3a`.
+Independent AI R2 resolved R1's native retry/allocation finding and reported
+no new actionable findings. AI review is not human approval. Required native
+macOS/Windows CI passed on head (run `34993143814`) and actual merge
+(`34994182910`). These later results supersede the pending R2/CI notes in the
+dated local execution record below; they do not complete Slice B.
 
 ## Slice A local execution record
 

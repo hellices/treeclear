@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      process_visibility_probe:
+        description: Authorize the test-only read-only root probe on a disposable macOS runner
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,6 +20,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  process-visibility-probe:
+    name: authorized process feasibility (macOS)
+    if: github.event_name == 'workflow_dispatch' && inputs.process_visibility_probe == true
+    runs-on: macos-15
+    timeout-minutes: 8
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      GOFLAGS: -mod=readonly
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.5'
+          check-latest: false
+          cache: false
+      - name: Identify disposable native runner
+        run: |
+          sw_vers
+          uname -m
+          go version
+          git --version
+      - name: Test the probe contract without elevation
+        run: go test -count=1 ./tests/processprobe
+      - name: Run explicitly authorized installed process probe
+        env:
+          TREECLEAR_TEST_PROCESS_PROBE: '1'
+        run: go test -count=1 -run '^TestAuthorizedProcessProbe$' -v ./tests/e2e
+      - name: Check source remains unchanged
+        if: always()
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
+
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
