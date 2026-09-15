@@ -99,7 +99,10 @@ func newPlanCommand(dependencies Dependencies) *cobra.Command {
 			if err := renderPlan(command.OutOrStdout(), format, path, value, contents); err != nil {
 				return fmt.Errorf("plan saved at %q; output failed: %w", path, err)
 			}
-			return buildErr
+			if buildErr != nil {
+				return &incompletePlanError{planID: value.ID, cause: buildErr}
+			}
+			return nil
 		},
 	}
 	command.Flags().StringArrayVar(&roots, "root", nil, "Repository discovery root (repeatable; defaults to configured roots or the containing repository)")
@@ -182,10 +185,18 @@ func renderPlan(output io.Writer, format, path string, value domain.Plan, conten
 }
 
 func writePlanWarnings(output io.Writer, warnings []string) error {
-	for _, warning := range warnings {
-		if _, err := fmt.Fprintf(output, "warning: %s\n", strconv.Quote(warning)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return writeWarningPreview(output, warnings, "warning", "see saved plan JSON for full diagnostics")
+}
+
+type incompletePlanError struct {
+	planID string
+	cause  error
+}
+
+func (failure *incompletePlanError) Error() string {
+	return fmt.Sprintf("plan %s saved; collection incomplete; see saved plan JSON for full diagnostics", failure.planID)
+}
+
+func (failure *incompletePlanError) Unwrap() error {
+	return failure.cause
 }

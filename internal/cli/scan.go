@@ -219,14 +219,5 @@ func renderScan(output io.Writer, format string, result ScanResult) error {
 	if err := writer.Flush(); err != nil {
 		return err
 	}
-	for index, warning := range result.Warnings {
-		if index == 5 {
-			_, err := fmt.Fprintf(output, "... %d additional warnings; use --format json for details.\n", len(result.Warnings)-index)
-			return err
-		}
-		if _, err := fmt.Fprintf(output, "Warning: %q\n", warning); err != nil {
-			return err
-		}
-	}
-	return nil
+	return writeWarningPreview(output, result.Warnings, "Warning", "use --format json for details")
 }

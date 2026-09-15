@@ -58,7 +58,9 @@ JSON output includes `schemaVersion`, `toolVersion`, `collectedAt`, `complete`,
 `worktrees` (each with `worktree`, `evidence`, and `decision`), and `warnings`.
 Incomplete collection still prints available results, protects candidates,
 sets `complete: false`, and exits with status 1. Human output escapes control
-characters in paths; JSON retains the complete warning list.
+characters in paths. Warning previews show at most five warnings, each limited
+to 512 bytes of escaped, quoted text, with omission/truncation notices and
+directions to full JSON. JSON retains the complete warning list.
 
 ## Plans and explanations
 
@@ -74,6 +76,16 @@ Plan JSON on stdout contains the signed, versioned plan; diagnostics go to
 stderr. Partial collection failures still save and print an inspectable plan,
 block potentially affected candidates, and exit unsuccessfully. Core-only
 adapter warnings remain visible in both plan and explain.
+Their stderr warning previews use the same bounds as scan. After successfully
+saving and printing a partial plan, the terminal error names its saved ID and
+incomplete status instead of repeating every collection error. Full diagnostics
+remain in the authenticated saved plan JSON and JSON stdout.
+
+Actual installed-binary testing on an ordinary-user macOS desktop produces
+incomplete scan/plan results because native process inspection is partially
+inaccessible. [Issue #18](https://github.com/hellices/treeclear/issues/18) tracks
+this unresolved release-qualification blocker. Bounded diagnostics do not
+restore visibility, turn unknown evidence into inactivity, or authorize cleanup.
 
 `--output` writes an independent private copy of the exact saved bytes. It
 never overwrites an existing destination or changes an existing parent
@@ -119,9 +131,11 @@ and `go build ./...`; `gofmt -l .` must print nothing. `make verify` is an
 optional shortcut. `make build` writes the native CLI into `bin/` and accepts
 `VERSION=<version>`. Windows contributors can use Go commands in PowerShell.
 
-Tests use temporary repositories and synthetic process records. Native
-process smoke tests inspect only the test process. CI runs on macOS and
-Windows; neither baseline tests nor this preview certify future cleanup.
+Tests use temporary repositories and synthetic process records. Small native
+process smoke tests inspect only the test process; installed-binary runtime
+tests use real native collection against temporary worktrees and an owned
+process. CI runs on macOS and Windows; neither baseline tests nor this preview
+certify future cleanup.
 
 - [Implementation sequence](docs/plans/README.md)
 - [Development and review workflow](docs/development.md)

@@ -86,6 +86,29 @@ and incomplete-evidence handling, see the [README](../README.md). Planning
 writes private local plans; "non-removing preview" does not mean that every
 command is stateless. Keep plan and evidence files local.
 
+## Known native process-visibility limitation
+
+Installed-binary testing on an ordinary-user macOS desktop found that native
+process inspection is partially inaccessible. On that machine, `scan` prints
+`complete: false` JSON and exits with status 1; `plan` saves an authenticated,
+inspectable partial plan but also exits with status 1. The saved plan can still
+be inspected with `explain`. An inspectable plan is not complete collection or
+authorization to remove anything.
+
+[Issue #18](https://github.com/hellices/treeclear/issues/18) tracks the unresolved
+visibility/permission design and native release qualification. The preview
+does not elevate privileges, install a helper, or exclude inaccessible
+processes based on their owner. Unknown evidence continues to block cleanup;
+do not treat it as inactivity or use `sudo` as a blanket workaround.
+
+Human warning previews show at most five warnings, each capped at 512 bytes of
+escaped, quoted text. Notices disclose omitted warnings and truncated text.
+Use scan's `--format json` or the authenticated saved plan JSON for the full
+local evidence. Plan/explain stderr uses the same preview bounds; a saved
+partial plan's terminal error keeps its plan ID and incomplete status without
+repeating all nested collection errors. This diagnostics fix is separate from
+the visibility blocker.
+
 ## Upgrade or return to a previous preview
 
 Select the reviewed revision you intend to evaluate in a clean checkout,
