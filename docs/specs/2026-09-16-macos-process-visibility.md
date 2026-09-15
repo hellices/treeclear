@@ -67,9 +67,15 @@ The probe is a separate test executable under `tests/processprobe`; normal
 `make install` still installs only `treeclear`. Ordinary Go unit tests exercise
 the probe contract without elevation. Only an explicit workflow-dispatch
 opt-in on a disposable native macOS runner invokes the installed probe through
-absolute `/usr/bin/sudo -n --`. Local collection needs separate native OS
-authorization and an explicit test opt-in. Never prompt or retry without
-`-n`, read a password, or change system authorization policy.
+absolute `/usr/bin/sudo -n --`. This test does not support local or self-hosted
+elevated execution. Before building, creating fixtures or invoking sudo, it
+requires all of `TREECLEAR_TEST_PROCESS_PROBE=1`, `GITHUB_ACTIONS=true`,
+`GITHUB_EVENT_NAME=workflow_dispatch`, `RUNNER_ENVIRONMENT=github-hosted`,
+`RUNNER_OS=macOS`, and `GITHUB_JOB=process-visibility-probe`. Absent opt-in skips;
+present opt-in in any other context fails. These spoofable environment checks
+prevent accidental execution; they are not authentication. Sudo still controls
+OS authorization, and the exact reviewed binary must be trusted. Never prompt
+or retry without `-n`, read a password, or change system authorization policy.
 
 The ordinary-user test creates temporary `internal/testutil` Git fixtures and
 an owned sleep child. It installs the test executable into a private temporary

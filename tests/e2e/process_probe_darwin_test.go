@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,10 +164,10 @@ func TestInstalledProcessProbeRefusesUnprivilegedExecution(test *testing.T) {
 
 func TestAuthorizedProcessProbe(test *testing.T) {
 	if os.Getenv("TREECLEAR_TEST_PROCESS_PROBE") == "" {
-		test.Skip("requires explicit read-only administrator test authorization and TREECLEAR_TEST_PROCESS_PROBE=1")
+		test.Skip("requires explicitly opted-in manual hosted-macOS CI")
 	}
-	if os.Getenv("TREECLEAR_TEST_PROCESS_PROBE") != "1" || os.Getuid() == 0 || os.Geteuid() != os.Getuid() {
-		test.Fatal("probe opt-in must be exactly 1 and the driver must retain its ordinary user identity")
+	if !hostedProcessProbeAllowed(os.Getenv) || os.Getuid() == 0 || os.Geteuid() != os.Getuid() {
+		test.Fatal("probe requires explicit manual hosted-macOS CI and an ordinary-user test driver")
 	}
 	binary, checksum := installProcessProbe(test)
 	home := test.TempDir()
@@ -233,6 +234,54 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 		test.Fatalf("native process/path feasibility not established: exit=%d stdout_bytes=%d stderr_bytes=%d report_error=%v; raw output withheld", result.ExitCode, len(result.Stdout), len(result.Stderr), reportErr)
 	}
 	test.Log("process/path feasibility only; this is not installed treeclear scan/plan or desktop permission qualification")
+}
+
+func hostedProcessProbeAllowed(getenv func(string) string) bool {
+	return getenv("TREECLEAR_TEST_PROCESS_PROBE") == "1" &&
+		getenv("GITHUB_ACTIONS") == "true" &&
+		getenv("GITHUB_EVENT_NAME") == "workflow_dispatch" &&
+		getenv("RUNNER_ENVIRONMENT") == "github-hosted" &&
+		getenv("RUNNER_OS") == "macOS" &&
+		getenv("GITHUB_JOB") == "process-visibility-probe"
+}
+
+func TestAuthorizedProbeRequiresManualHostedCI(test *testing.T) {
+	valid := map[string]string{
+		"TREECLEAR_TEST_PROCESS_PROBE": "1", "GITHUB_ACTIONS": "true",
+		"GITHUB_EVENT_NAME": "workflow_dispatch", "RUNNER_ENVIRONMENT": "github-hosted",
+		"RUNNER_OS": "macOS", "GITHUB_JOB": "process-visibility-probe",
+	}
+	if !hostedProcessProbeAllowed(func(name string) string { return valid[name] }) {
+		test.Fatal("explicit manual hosted CI was rejected")
+	}
+	cases := map[string]map[string]string{"local": {"TREECLEAR_TEST_PROCESS_PROBE": "1"}, "absent": {}}
+	for name := range valid {
+		missing := maps.Clone(valid)
+		delete(missing, name)
+		cases["missing-"+name] = missing
+	}
+	for name, field := range map[string][2]string{
+		"wrong-opt-in": {"TREECLEAR_TEST_PROCESS_PROBE", "true"},
+		"push":         {"GITHUB_EVENT_NAME", "push"},
+		"pull-request": {"GITHUB_EVENT_NAME", "pull_request"},
+		"scheduled":    {"GITHUB_EVENT_NAME", "schedule"},
+		"self-hosted":  {"RUNNER_ENVIRONMENT", "self-hosted"},
+		"windows":      {"RUNNER_OS", "Windows"},
+		"linux":        {"RUNNER_OS", "Linux"},
+		"ordinary-job": {"GITHUB_JOB", "verify"},
+		"not-actions":  {"GITHUB_ACTIONS", "false"},
+	} {
+		changed := maps.Clone(valid)
+		changed[field[0]] = field[1]
+		cases[name] = changed
+	}
+	for name, environment := range cases {
+		test.Run(name, func(test *testing.T) {
+			if hostedProcessProbeAllowed(func(key string) string { return environment[key] }) {
+				test.Fatal("unintended execution context can reach the privileged probe")
+			}
+		})
+	}
 }
 
 func installProcessProbe(test *testing.T) (string, [32]byte) {

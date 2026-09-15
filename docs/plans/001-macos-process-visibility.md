@@ -96,8 +96,12 @@ executable, never reusable process evidence or a candidate decision.
   verifies microsecond identity, and checks non-mutation and ownership. Its
   elevated invocation is `/usr/bin/sudo -n -- <exact-installed-probe>` with
   private stdin/stdout, fixed environment/cwd and bounded lifetime.
-- [x] Add a manual-only CI input for that test. Normal macOS/Windows CI stays
-  mandatory and never elevates. The manual invocation is
+- [x] Add a manual-only CI input for that test and enforce its hosted/manual
+  job context inside the test before build, fixtures or sudo. Pure fake-env
+  tests reject local, PR, push, scheduled, self-hosted and wrong-job contexts.
+  These are accidental-execution interlocks, not authentication; this slice
+  provides no local elevated test path. Normal macOS/Windows CI stays
+  mandatory and never elevates. Inside the manually dispatched probe job, run
   `TREECLEAR_TEST_PROCESS_PROBE=1 go test -count=1 -run '^TestAuthorizedProcessProbe$' -v ./tests/e2e`.
   Partial output is a test failure, not a passing qualification.
 - [ ] Run all AGENTS.md checks and the existing installed preview regression.

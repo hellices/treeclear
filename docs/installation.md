@@ -120,7 +120,9 @@ inspection. Do not run the whole CLI as root or add a setuid/sudoers shortcut.
 The [permission feasibility design](specs/2026-09-16-macos-process-visibility.md)
 first tests isolated, explicitly authorized process/path inspection on a
 disposable macOS runner. That test tool is not installed by `make install` and
-does not grant the CLI any privilege. A future signed helper needs separate
+does not grant the CLI any privilege. Its elevated test driver refuses local
+and self-hosted execution, even if its opt-in environment variable is set.
+A future signed helper needs separate
 review of caller authorization, updates, revocation and removal; a passing
 root API experiment alone does not qualify that helper or resolve #18.
 
