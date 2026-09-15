@@ -66,6 +66,12 @@ Empty, malformed, duplicated or unbounded snapshots and exhausted retries
 remain incomplete. All inaccessible live processes are retained, regardless
 of owner, and existing local/global unknown propagation is unchanged.
 
+Native table sizing/read operations have their own three-attempt growth bound
+and check the collection context between calls. Reject excessive or malformed
+sizes before allocation (at most 65,536 kernel records). Do not call a native
+library helper with an unbounded internal retry loop. This is a bound on the
+software retries, not a claim that Go can preempt an individual kernel call.
+
 The kernel's PID 0 record is not a user-space process. Recognize it only from
 the native combination of PID/parent PID 0, root UID, `P_SYSTEM`, `SRUN`,
 `kernel_task` name and valid start time. Unexpected PID 0 remains an error.

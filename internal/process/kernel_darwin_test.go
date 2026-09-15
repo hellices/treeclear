@@ -1,13 +1,17 @@
 package process
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
 
 func TestDarwinKernelMetadataContract(test *testing.T) {
-	records, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	ctx, cancel := context.WithTimeout(test.Context(), 10*time.Second)
+	defer cancel()
+	records, err := nativeDarwinTable(ctx)
 	if err != nil {
 		test.Fatalf("native process enumeration failed: %v", err)
 	}

@@ -123,7 +123,7 @@ func readDarwinSnapshot(ctx context.Context) ([]darwinProcess, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	records, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	records, err := nativeDarwinTable(ctx)
 	if err != nil {
 		return nil, err
 	}

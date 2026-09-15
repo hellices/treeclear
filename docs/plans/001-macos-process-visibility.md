@@ -24,6 +24,8 @@ Files: `internal/process/native_darwin.go`,
 `internal/process/native_other.go`,
 `internal/process/native_darwin_test.go`, `internal/process/native_other_test.go`,
 `internal/process/kernel_darwin_test.go`,
+`internal/process/native_sysctl_darwin.go`,
+`internal/process/native_sysctl_darwin_test.go`, `go.mod`,
 `internal/cli/scan.go`, `internal/cli/plan.go`, and
 `tests/e2e/installed_runtime_test.go`.
 
@@ -84,3 +86,13 @@ actually ran installed executables with isolated Git fixtures, correlated the
 owned active process, checked original/exported plans and explanations,
 rejected tampering, and verified fixture preservation. Independent code review
 and remote native CI are separate remaining gates for this slice.
+
+Independent AI code review R1 found a P2 bound violation in the pinned
+`x/sys` native table helper: its internal `ENOMEM` retry loop is unbounded and
+allocates before Treeclear's record-count check. The correction binds the
+fixed native `sysctl` ABI using the already-pinned purego dependency (now
+direct), validates the size before allocating, bounds growth retries, checks
+cancellation between reads, and rejects malformed returned byte counts.
+New fault-injection tests cover these cases; real native kernel/source tests,
+the full uncached/race suite, vet, build, formatting and whitespace checks
+pass again. R2 and final-head CI are still pending; this is not human approval.
