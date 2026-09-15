@@ -38,6 +38,11 @@ implementation, not functionality provided by this documentation amendment.
 
 ## Early macOS source-install preview
 
+[The macOS process-visibility follow-up](001-macos-process-visibility.md)
+tracks issue #18's native enumeration correction and the separately reviewed
+permission boundary. Ordinary-user partial collection remains protective;
+this follow-up does not advance the independent snapshot review of PR #14.
+
 The user-requested source-install slice of
 [Plan 004 Task 8](004-operations-and-release.md#early-slice-native-source-installation)
 is brought forward from the release stage, based only on reviewed `main`.

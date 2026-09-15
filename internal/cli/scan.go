@@ -143,7 +143,7 @@ func scan(ctx context.Context, dependencies Dependencies, configuration config.C
 	}
 	collector := dependencies.Processes
 	if collector == nil {
-		collector = process.Collector{Source: process.GopsutilSource{}}
+		collector = process.Collector{Source: process.NativeSource()}
 	}
 	now := dependencies.Now
 	if now == nil {
