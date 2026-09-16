@@ -120,13 +120,30 @@ build failure or evidence that installation authorization solves issue #18.
 - [x] Preserve the failure and add test-first, fixed-label aggregate diagnostics
   for the first failed field and native error wording. Validate reply labels,
   bounds and totals before logging; never expose raw records or errors.
-- [ ] Independently review the diagnostic-only change and explicitly rerun the
+- [x] Independently review the diagnostic-only change and explicitly rerun the
   installed probe on the disposable hosted macOS job to identify the failure.
 - [ ] If a correctable source or collector defect is established, reproduce it
   in a failing isolated test and fix only that defect. Do not filter the process,
   relax path checks, accept incomplete output, or alter host authorization.
 - [ ] Rerun all AGENTS.md checks and native macOS/Windows CI, publish only
   sanitized results, and retain the merge hold unless feasibility is established.
+
+The reviewed diagnostic commit `c3ab077` was tested in explicit run
+`35038656217` on macOS 15.7.9 arm64. The installed probe hash was
+`32df914b2fcdc15ebcc072c136c7dd8c5e7c9e4ed66bd4f0bbba05a5ea3dd254`.
+The same one global unknown remained, now classified as an executable/native
+read failure. Both ordinary native CI jobs passed; the administrator probe
+remained a failure. This does not identify a specific errno or affected process.
+
+The narrowly scoped source follow-up adds `internal/process/native_path_darwin.go`
+and its tests, and selects it only for `darwinReader.ExeWithContext`. An actual
+nonexistent-PID regression first reproduced lost ESRCH in the pinned library.
+Native-error preservation, bounded/terminated results, cancellation and stale
+errno are tested before implementation; the probe exposes only allowlisted errno
+counts. This is an explicit exception to B1's original unchanged-production
+slice: it improves existing executable-read diagnostics, not permissions or
+cleanup eligibility. Independent review and an explicitly authorized installed
+rerun are required before drawing conclusions about the CI failure.
 
 ### Slice A review and merge completion
 

@@ -297,6 +297,37 @@ func TestProbeReportsOnlyFixedFailureStages(test *testing.T) {
 	}
 }
 
+func TestProbeReportsOnlyFixedNativePathErrnos(test *testing.T) {
+	request := validProbeRequest()
+	marker := "private-host-data-must-not-escape"
+	for code, label := range map[string]string{
+		"0": "unavailable",
+		"1": "EPERM", "2": "ENOENT", "3": "ESRCH", "5": "EIO",
+		"9": "EBADF", "12": "ENOMEM", "13": "EACCES", "16": "EBUSY",
+		"20": "ENOTDIR", "22": "EINVAL", "35": "EAGAIN", "45": "ENOTSUP",
+		"63": "ENAMETOOLONG", "84": "EOVERFLOW", "999": "other", marker: "other",
+	} {
+		test.Run(label, func(test *testing.T) {
+			var output bytes.Buffer
+			collect := func(context.Context, []domain.Worktree) (process.Collection, []error) {
+				return completeProbeCollection(request), []error{errors.New("process 123: executable: proc_pidpath errno " + code + ": " + marker)}
+			}
+			if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect) != 1 {
+				test.Fatal("native error diagnostics hid incomplete collection")
+			}
+			var report struct {
+				NativePathErrnos map[string]int `json:"native_path_errnos"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+				test.Fatal(err)
+			}
+			if len(report.NativePathErrnos) != 1 || report.NativePathErrnos[label] != 1 || bytes.Contains(output.Bytes(), []byte(marker)) {
+				test.Fatal("native errno category is missing, incorrect or exposes raw data")
+			}
+		})
+	}
+}
+
 func TestProbeRetainsFullCollectorPathValidation(test *testing.T) {
 	root, err := filepath.EvalSymlinks(test.TempDir())
 	if err != nil {

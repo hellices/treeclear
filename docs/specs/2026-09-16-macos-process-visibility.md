@@ -107,6 +107,10 @@ must equal the returned error count, and the parent rejects unknown labels,
 invalid counts and malformed replies before logging. No diagnostic changes
 completeness, the set of processes inspected, or any path validation. Raw
 messages and arbitrary labels remain excluded from reports and CI artifacts.
+Executable-read errors additionally have a fixed errno-label histogram. Its
+total cannot exceed the executable-first-error count. `unavailable` means the
+native call supplied no errno; it must not be misreported as OS-supplied EIO.
+Unrecognized codes use `other`, never an arbitrary raw value or label.
 
 The operator must trust the exact test executable before authorizing it. The
 private pipe and challenge prevent accidental response mixups; they are not a
@@ -152,6 +156,16 @@ process starting immediately afterwards. The evidence is a bounded current
 observation, not a lease. Future apply must invoke fresh collection and retain
 the full-plan revalidation requirement; saved helper output is not an input.
 
+The PR #22 CI investigation also corrects executable-error provenance in the
+Darwin source: the pinned library discarded `proc_pidpath` errno. The native
+wrapper uses the same system API with a fixed 4,096-byte buffer, pins the OS
+thread, resolves the errno pointer before the call, clears it, and captures a
+failure's errno before unlocking. Successful reads ignore stale errno and
+require an absolute, exactly terminated path within the allocation bound.
+Missing errno, malformed results and cancellation still fail; no fallback path,
+process exclusion, extra privilege or collector-validation bypass is added.
+This is a source-error correction, not a product permission mechanism.
+
 ## Future product integration acceptance
 
 Use test-first ordinary Go tests for native identity changes, verified kernel
@@ -190,5 +204,6 @@ https://developer.apple.com/documentation/servicemanagement/updating-helper-exec
 https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/proc_info.c
 https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/bsd_init.c
 https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exit.c
+https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.c
 https://github.com/shirou/gopsutil/blob/v4.26.8/process/process_darwin.go
 ```

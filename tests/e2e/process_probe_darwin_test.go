@@ -59,6 +59,7 @@ type installedProbeReport struct {
 	ActiveMatched        bool           `json:"active_matched"`
 	Complete             bool           `json:"complete"`
 	FirstFailureStages   map[string]int `json:"first_failure_stages"`
+	NativePathErrnos     map[string]int `json:"native_path_errnos"`
 }
 
 func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
@@ -140,16 +141,27 @@ func TestInstalledProbeValidatesDiagnosticCounts(test *testing.T) {
 			test.Errorf("valid %s diagnostics were lost or made incomplete evidence pass", kind)
 		}
 	}
+	native := partial
+	native.FirstFailureStages, native.NativePathErrnos = map[string]int{"executable": 1}, map[string]int{"ESRCH": 1}
+	if actual, err := decode(native); err == nil || actual.Version != 1 || actual.NativePathErrnos["ESRCH"] != 1 {
+		test.Fatal("valid native errno diagnostics were lost or passed incomplete collection")
+	}
 	for name, mutate := range map[string]func(*installedProbeReport){
-		"unknown-stage":   func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"private-host-data": 1} },
-		"negative-stage":  func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": -1} },
-		"oversized-stage": func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 1048577} },
-		"zero-stage":      func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 0, "other": 1} },
-		"wrong-total":     func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 1, "other": 1} },
-		"missing-stage":   func(report *installedProbeReport) { report.FirstFailureStages = nil },
-		"negative-kind":   func(report *installedProbeReport) { report.InvalidArgumentCount = -1 },
-		"oversized-kind":  func(report *installedProbeReport) { report.NativeReadErrorCount = 1048577 },
-		"hidden-kind":     func(report *installedProbeReport) { report.NativeReadErrorCount = 1 },
+		"unknown-native-code":    func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"private-host-data": 1} },
+		"negative-native-count":  func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"ESRCH": -1} },
+		"oversized-native-count": func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"ESRCH": 1048577} },
+		"zero-native-count":      func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"ESRCH": 0} },
+		"wrong-native-total":     func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"ESRCH": 2} },
+		"wrong-native-scope":     func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"ESRCH": 1} },
+		"unknown-stage":          func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"private-host-data": 1} },
+		"negative-stage":         func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": -1} },
+		"oversized-stage":        func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 1048577} },
+		"zero-stage":             func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 0, "other": 1} },
+		"wrong-total":            func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 1, "other": 1} },
+		"missing-stage":          func(report *installedProbeReport) { report.FirstFailureStages = nil },
+		"negative-kind":          func(report *installedProbeReport) { report.InvalidArgumentCount = -1 },
+		"oversized-kind":         func(report *installedProbeReport) { report.NativeReadErrorCount = 1048577 },
+		"hidden-kind":            func(report *installedProbeReport) { report.NativeReadErrorCount = 1 },
 	} {
 		test.Run(name, func(test *testing.T) {
 			report := partial
@@ -197,6 +209,21 @@ func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (i
 		stageTotal += count
 	}
 	if stageTotal != report.ErrorCount {
+		return installedProbeReport{}, invalid
+	}
+	nativeTotal := 0
+	for code, count := range report.NativePathErrnos {
+		switch code {
+		case "unavailable", "EPERM", "ENOENT", "ESRCH", "EIO", "EBADF", "ENOMEM", "EACCES", "EBUSY", "ENOTDIR", "EINVAL", "EAGAIN", "ENOTSUP", "ENAMETOOLONG", "EOVERFLOW", "other":
+		default:
+			return installedProbeReport{}, invalid
+		}
+		if count <= 0 || count > 1048576 {
+			return installedProbeReport{}, invalid
+		}
+		nativeTotal += count
+	}
+	if nativeTotal > report.FirstFailureStages["executable"] {
 		return installedProbeReport{}, invalid
 	}
 	complete := report.RootsMatched && report.RootCount == roots && report.EnumerationComplete && report.ErrorCount == 0 && report.RetainedErrorCount == 0 && report.UninspectableCount == 0 && report.GlobalUnknownCount == 0 && report.ScopedUnknownCount == 0 && report.ActiveMatched
@@ -295,7 +322,7 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 	}
 	report, reportErr := decodeInstalledProbeReport(result.Stdout, request.Challenge, len(request.Roots))
 	if report.Version == 1 {
-		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d invalid_argument_error_strings=%d native_read_error_strings=%d first_failure_stages=%v", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount, report.FirstFailureStages)
+		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d invalid_argument_error_strings=%d native_read_error_strings=%d first_failure_stages=%v native_path_errnos=%v", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount, report.FirstFailureStages, report.NativePathErrnos)
 	}
 	if runErr != nil || result.ExitCode != 0 || len(result.Stderr) != 0 || reportErr != nil || !report.Complete {
 		test.Fatalf("native process/path feasibility not established: exit=%d stdout_bytes=%d stderr_bytes=%d report_error=%v; raw output withheld", result.ExitCode, len(result.Stdout), len(result.Stderr), reportErr)

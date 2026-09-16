@@ -50,6 +50,7 @@ type probeReport struct {
 	ActiveMatched        bool           `json:"active_matched"`
 	Complete             bool           `json:"complete"`
 	FirstFailureStages   map[string]int `json:"first_failure_stages"`
+	NativePathErrnos     map[string]int `json:"native_path_errnos"`
 }
 
 type probeCollect func(context.Context, []domain.Worktree) (process.Collection, []error)
@@ -140,6 +141,7 @@ func summarizeCollection(request probeRequest, effectiveUID int, collection proc
 		RetainedErrorCount: len(collection.Errors), UninspectableCount: len(collection.Uninspectable),
 		GlobalUnknownCount: len(collection.GlobalUnknown),
 		FirstFailureStages: make(map[string]int),
+		NativePathErrnos:   make(map[string]int),
 	}
 	for _, root := range request.Roots {
 		if _, exists := collection.ByWorktree[root]; !exists {
@@ -166,6 +168,9 @@ func summarizeCollection(request probeRequest, effectiveUID int, collection proc
 			message = strings.ToLower(failure.Error())
 		}
 		report.FirstFailureStages[firstFailureStage(message)]++
+		if code := nativePathErrno(message); code != "" {
+			report.NativePathErrnos[code]++
+		}
 		switch {
 		case strings.Contains(message, "permission denied"), strings.Contains(message, "operation not permitted"):
 			report.DeniedErrorCount++
@@ -211,4 +216,50 @@ func firstFailureStage(message string) string {
 		}
 	}
 	return "other"
+}
+
+func nativePathErrno(message string) string {
+	if firstFailureStage(message) != "executable" {
+		return ""
+	}
+	_, remaining, _ := strings.Cut(message, ": ")
+	remaining, found := strings.CutPrefix(remaining, "executable: proc_pidpath errno ")
+	if !found {
+		return ""
+	}
+	code, _, _ := strings.Cut(remaining, ": ")
+	switch code {
+	case "0":
+		return "unavailable"
+	case "1":
+		return "EPERM"
+	case "2":
+		return "ENOENT"
+	case "3":
+		return "ESRCH"
+	case "5":
+		return "EIO"
+	case "9":
+		return "EBADF"
+	case "12":
+		return "ENOMEM"
+	case "13":
+		return "EACCES"
+	case "16":
+		return "EBUSY"
+	case "20":
+		return "ENOTDIR"
+	case "22":
+		return "EINVAL"
+	case "35":
+		return "EAGAIN"
+	case "45":
+		return "ENOTSUP"
+	case "63":
+		return "ENAMETOOLONG"
+	case "84":
+		return "EOVERFLOW"
+	default:
+		return "other"
+	}
 }
