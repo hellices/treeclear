@@ -3465,7 +3465,9 @@ an atomic native no-replace rename and synchronize the parent again.
 Existing targets, including empty directories and symlinks, are never
 replaced. No invalid bundle, cancellation or I/O/security/checked-close error
 returns a receipt. Before publication, clean only known owned staging entries;
-uncertain cleanup preserves data and reports failure. An error after rename
+uncertain cleanup preserves data and reports failure. Unsealed writes are
+always preserved: cleanup must not adopt a new metadata baseline after a
+failed write, sync or cancellation. An error after rename
 preserves the final private directory rather than deleting a recovery copy.
 Callers must handle that ambiguous outcome as failure, not remove a worktree
 or blindly overwrite/retry the same ID. Finite observations do not promise
@@ -3477,15 +3479,44 @@ platforms return `errors.ErrUnsupported` before filesystem writes; existing
 Windows storage APIs and native CI remain intact. Windows publication and
 runtime qualification remain in #15. No CLI mutation surface is added.
 
-- [ ] Write failing tests for bundle validation before writes, aggregate byte
+- [x] Write failing tests for bundle validation before writes, aggregate byte
   limits, manifest-last ordering, owned bytes, receipts and cancellation.
-- [ ] Write failing native private-storage tests for privacy, no-replace
+- [x] Write failing native private-storage tests for privacy, no-replace
   publication, identity changes, read-back, I/O failures and safe cleanup.
-- [ ] Implement the bounded snapshot wrapper and macOS storage primitive;
+- [x] Implement the bounded snapshot wrapper and macOS storage primitive;
   prove unsupported platforms do not write.
 - [ ] Run all AGENTS.md commands, independent AI review and focused fixes.
 - [ ] Open the scoped PR, pass native macOS/Windows CI, and verify the
   authorized merge's actual-main CI before advancing.
+
+#### Task 8I execution and first review
+
+The first controller matrix passed on Go 1.26.5 darwin/arm64: normal tests
+(snapshot 90.697s, fssecure 8.388s), race tests (snapshot 121.886s, fssecure
+15.395s), vet, build, empty formatting and whitespace checks. All source
+hashes remained unchanged across the matrix. Initial API-missing RED and a
+native assertion RED against the unsupported stub preceded integrated
+publication GREEN (0.604s). The native round-trip fixture's budget was
+corrected to account for the pre-existing expanded-tar bound; no product
+limit was relaxed.
+
+PR #24 head `d121b15887a8122dc4c662476c20fb5d888b1ce6` passed ordinary native
+macOS and Windows CI `35111514635`. The independent AI wrapper review found
+no actionable issue. A separate independent AI integrated review found P2:
+cleanup acquired a new metadata baseline for an unsealed failed-write file,
+so a same-inode content change after writer close could be adopted and deleted.
+Neither those reviews nor CI are human approval or release qualification.
+
+The controller reproduced that specific failure with an owned native fixture:
+changed size remained observable, identity/owner/mode/link count remained
+unchanged, and the 39 replacement bytes were incorrectly removed. New
+failure/cancellation assertions also exposed removal of unsealed files. The
+correction always preserves unsealed children, without taking a new cleanup
+baseline. Sealed unchanged copies still exercise cleanup error propagation;
+the cleanup-fault fixture now fails a read after sealing rather than relying
+on deletion of an unsealed failed write. Focused storage tests pass (3.055s).
+Corrective full verification, independent re-review and native final-head /
+actual-merge CI remain revision-bound requirements recorded in PR #24.
 
 ### Remaining Task 8 lifecycle
 

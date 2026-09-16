@@ -325,17 +325,15 @@ func (publisher *directoryPublisher) cleanup() error {
 	if err := publisher.checkListing(context.Background()); err != nil {
 		return fmt.Errorf("leave uncertain private staging directory %q: %w", publisher.stagingName, err)
 	}
-	for index := range publisher.children {
-		child := &publisher.children[index]
+	for _, child := range publisher.children {
+		if !child.sealed {
+			return fmt.Errorf("leave unsealed private staging file %q: %w", child.name, fs.ErrInvalid)
+		}
 		file, err := publisher.operations.openat(int(publisher.staging.Fd()), child.name, directoryReadFlags, 0)
 		if err != nil {
 			return err
 		}
 		err = verifyDirectoryHandle(file, child.identity, false)
-		if err == nil && !child.sealed {
-			err = unix.Fstat(int(file.Fd()), &child.identity)
-			child.sealed = err == nil
-		}
 		if err := errors.Join(err, publisher.operations.close(file)); err != nil {
 			return fmt.Errorf("leave uncertain private staging file %q: %w", child.name, err)
 		}

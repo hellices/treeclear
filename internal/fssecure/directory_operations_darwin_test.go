@@ -145,6 +145,14 @@ func TestDirectoryPublicationOperationFailures(test *testing.T) {
 			if published {
 				assertDirectoryPublication(test, target, files)
 				assertOnlyNames(test, filepath.Dir(target), "snapshot")
+			} else if boundary == "write" || boundary == "short write" || boundary == "file sync" {
+				expected := files[0]
+				if boundary == "write" {
+					expected.Contents = nil
+				} else if boundary == "short write" {
+					expected.Contents = expected.Contents[:len(expected.Contents)-1]
+				}
+				assertUnsealedDirectoryPublication(test, target, expected)
 			} else {
 				assertOnlyNames(test, filepath.Dir(target))
 			}
@@ -171,11 +179,28 @@ func TestDirectoryPublicationCancellationBoundaries(test *testing.T) {
 			if published {
 				assertDirectoryPublication(test, target, files)
 				assertOnlyNames(test, filepath.Dir(target), "snapshot")
+			} else if boundary == "file open" || boundary == "write" || boundary == "file sync" {
+				expected := files[0]
+				if boundary == "file open" {
+					expected.Contents = nil
+				}
+				assertUnsealedDirectoryPublication(test, target, expected)
 			} else {
 				assertOnlyNames(test, filepath.Dir(target))
 			}
 		})
 	}
+}
+
+func assertUnsealedDirectoryPublication(test *testing.T, target string, expected PrivateFile) {
+	test.Helper()
+	staging := directoryStagingPath(test, filepath.Dir(target))
+	assertOnlyNames(test, filepath.Dir(target), filepath.Base(staging))
+	assertPrivateObject(test, staging, true)
+	assertOnlyNames(test, staging, expected.Name)
+	assertPrivateObject(test, filepath.Join(staging, expected.Name), false)
+	assertContents(test, filepath.Join(staging, expected.Name), expected.Contents)
+	assertDirectoryAbsent(test, target)
 }
 
 func injectDirectoryBoundary(test *testing.T, operations *directoryOperations, target, boundary string, inject func() error, published *bool) {

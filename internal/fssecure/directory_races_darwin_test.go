@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestDirectoryPublicationRejectsEarlierPayloadChangedDuringManifestWrite(test *testing.T) {
@@ -209,6 +211,52 @@ func TestDirectoryPublicationPreservesUnsafeFileOnFailedWrite(test *testing.T) {
 	if after := darwinACLSnapshot(test, payload); after != before {
 		test.Fatal("cleanup modified an unsafe ACL")
 	}
+	assertDirectoryAbsent(test, target)
+}
+
+func TestDirectoryPublicationPreservesFailedWriteChangedAfterClose(test *testing.T) {
+	publisher, target, files := directoryPublisherFixture(test)
+	native := publisher.operations
+	failure := errors.New("write failed after bytes were written")
+	replacement := []byte("changed after closing the failed writer")
+	var writer *os.File
+	var staging string
+	changed := false
+	publisher.operations.write = func(file *os.File, contents []byte) (int, error) {
+		count, err := native.write(file, contents)
+		if err != nil {
+			return count, err
+		}
+		writer = file
+		staging = directoryStagingPath(test, filepath.Dir(target))
+		return count, failure
+	}
+	publisher.operations.close = func(file *os.File) error {
+		err := native.close(file)
+		if err != nil || file != writer || changed {
+			return err
+		}
+		payload := filepath.Join(staging, file.Name())
+		before, err := directoryStatAt(unix.AT_FDCWD, payload)
+		if err != nil {
+			test.Fatal(err)
+		}
+		if err := os.WriteFile(payload, replacement, 0o600); err != nil {
+			test.Fatal(err)
+		}
+		after, err := directoryStatAt(unix.AT_FDCWD, payload)
+		if err != nil || !sameDirectoryIdentity(before, after) || before.Mode != after.Mode || before.Uid != after.Uid || after.Nlink != 1 || before.Size == after.Size {
+			test.Fatalf("fixture must retain identity/privacy while changing size: %v", err)
+		}
+		changed = true
+		return nil
+	}
+	path, err := publisher.publish(context.Background(), target, files)
+	if path != "" || !errors.Is(err, failure) || !changed {
+		test.Fatalf("failed-write replacement = %q, %v; changed %t", path, err, changed)
+	}
+	assertContents(test, filepath.Join(staging, files[0].Name), replacement)
+	assertOnlyNames(test, filepath.Dir(target), filepath.Base(staging))
 	assertDirectoryAbsent(test, target)
 }
 

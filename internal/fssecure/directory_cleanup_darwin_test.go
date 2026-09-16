@@ -176,11 +176,13 @@ func TestDirectoryPublicationCleanupErrorsRetainPrivateStaging(test *testing.T) 
 	for _, boundary := range []string{"file unlink", "directory unlink", "file close"} {
 		test.Run(boundary, func(test *testing.T) {
 			publisher, target, files := directoryPublisherFixture(test)
-			writeFailure, cleanupFailure := errors.New("write failed"), errors.New("cleanup failed")
+			readFailure, cleanupFailure := errors.New("read failed"), errors.New("cleanup failed")
 			native := publisher.operations
-			publisher.operations.write = func(file *os.File, contents []byte) (int, error) {
-				count, err := native.write(file, contents)
-				return count, errors.Join(err, writeFailure)
+			readFailed := false
+			publisher.operations.read = func(file *os.File, contents []byte) (int, error) {
+				count, err := native.read(file, contents)
+				readFailed = true
+				return count, errors.Join(err, readFailure)
 			}
 			publisher.operations.unlinkat = func(descriptor int, name string, flags int) error {
 				if boundary == "file unlink" && flags == 0 || boundary == "directory unlink" && flags == unix.AT_REMOVEDIR {
@@ -190,13 +192,13 @@ func TestDirectoryPublicationCleanupErrorsRetainPrivateStaging(test *testing.T) 
 			}
 			publisher.operations.close = func(file *os.File) error {
 				err := native.close(file)
-				if boundary == "file close" && file.Name() == files[0].Name {
+				if readFailed && boundary == "file close" && file.Name() == files[0].Name {
 					return errors.Join(err, cleanupFailure)
 				}
 				return err
 			}
 			path, err := publisher.publish(context.Background(), target, files)
-			if path != "" || !errors.Is(err, writeFailure) || !errors.Is(err, cleanupFailure) {
+			if path != "" || !readFailed || !errors.Is(err, readFailure) || !errors.Is(err, cleanupFailure) {
 				test.Fatalf("cleanup error lost: %q, %v", path, err)
 			}
 			staging := directoryStagingPath(test, filepath.Dir(target))
