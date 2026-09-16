@@ -112,6 +112,15 @@ total cannot exceed the executable-first-error count. `unavailable` means the
 native call supplied no errno; it must not be misreported as OS-supplied EIO.
 Unrecognized codes use `other`, never an arbitrary raw value or label.
 
+Three additional fixed booleans report whether the probe's PID, its current
+parent PID or the test-driver PID from the private request occurs in the
+existing uninspectable map. The driver PID must be positive, but it is only a
+diagnostic hint, not caller authentication or authorization. These flags use
+PID membership rather than creation identity; they prove neither ownership
+nor relevance. Parent and driver can coincide. Any true flag with a zero
+uninspectable count invalidates the report before logging. Raw PIDs remain
+private, and the flags never change completeness or the processes inspected.
+
 The operator must trust the exact test executable before authorizing it. The
 private pipe and challenge prevent accidental response mixups; they are not a
 sandbox or protection against malicious code already controlling the caller's
@@ -165,6 +174,12 @@ require an absolute, exactly terminated path within the allocation bound.
 Missing errno, malformed results and cancellation still fail; no fallback path,
 process exclusion, extra privilege or collector-validation bypass is added.
 This is a source-error correction, not a product permission mechanism.
+
+A live owned process can return native ENOENT after its temporary executable
+is unlinked. The isolated regression checks that the same PID/start-time is
+still alive and that the collector retains unknown evidence for its active
+worktree. ENOENT is not proof of process exit or irrelevance, and this controlled
+reproduction does not identify the cause of the hosted feasibility failure.
 
 ## Future product integration acceptance
 

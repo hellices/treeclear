@@ -122,9 +122,11 @@ build failure or evidence that installation authorization solves issue #18.
   bounds and totals before logging; never expose raw records or errors.
 - [x] Independently review the diagnostic-only change and explicitly rerun the
   installed probe on the disposable hosted macOS job to identify the failure.
-- [ ] If a correctable source or collector defect is established, reproduce it
-  in a failing isolated test and fix only that defect. Do not filter the process,
-  relax path checks, accept incomplete output, or alter host authorization.
+- [x] Reproduce and correct the pinned library's discarded native executable
+  errno. Retain incomplete evidence; this is not a feasibility fix.
+- [ ] Establish the cause of the retained executable ENOENT and correct a proven
+  defect, if any. Do not filter the process, relax path checks, accept incomplete
+  output, or alter host authorization.
 - [ ] Rerun all AGENTS.md checks and native macOS/Windows CI, publish only
   sanitized results, and retain the merge hold unless feasibility is established.
 
@@ -144,6 +146,34 @@ counts. This is an explicit exception to B1's original unchanged-production
 slice: it improves existing executable-read diagnostics, not permissions or
 cleanup eligibility. Independent review and an explicitly authorized installed
 rerun are required before drawing conclusions about the CI failure.
+
+Independent AI review found no material blockers in the native-error change
+at `bc08f79`; it is not human approval. Explicit run `35040642065`, job
+`104619488126`, on macOS 15.7.9 (24G830) arm64 with Go 1.26.5 tested installed
+probe SHA-256
+`fe6f7f92c7f19ff7a3f6d86c10259d286197d1a5048ec166fa0790e0f869e20e`.
+The executable-first failure is now native `ENOENT:1`; one retained error,
+one uninspectable process and one global unknown remain. Enumeration and the
+owned active identity matched, root-side expiry passed, and ordinary native
+macOS/Windows checks passed. Authorized feasibility still failed. The errno
+alone does not identify the process or establish the cause on that runner.
+
+A controlled ordinary-user regression copies `/bin/sleep` into a private
+temporary directory, launches only that copy, and unlinks only its executable
+while the same owned PID/start-time remains alive. Its native ENOENT fails
+against the prior reader and is preserved by the correction; the real collector
+retains unknown evidence for its active worktree. This reproduces an error
+class, not the hosted runner's underlying cause. It grants no privilege and
+does not touch unrelated processes or files.
+
+The next test-only diagnostic distinguishes membership of the probe, its
+current parent and the request's test-driver PID in the existing uninspectable
+map. Only three booleans leave the private protocol, never their PIDs or raw
+evidence. They are advisory PID membership, not creation-identity matches,
+authentication, ownership or proof of relevance. Parent and driver may be the
+same process. The receiver rejects any true flag with a zero uninspectable
+count before logging; flags never change selection or completeness. Review
+and an explicit installed rerun remain required for this follow-up.
 
 ### Slice A review and merge completion
 

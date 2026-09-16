@@ -31,6 +31,7 @@ type installedProbeRequest struct {
 	Version         int       `json:"version"`
 	Challenge       string    `json:"challenge"`
 	CallerUID       uint32    `json:"caller_uid"`
+	DriverPID       int32     `json:"driver_pid"`
 	Roots           []string  `json:"roots"`
 	ActiveRoot      string    `json:"active_root"`
 	ActivePID       int32     `json:"active_pid"`
@@ -60,6 +61,9 @@ type installedProbeReport struct {
 	Complete             bool           `json:"complete"`
 	FirstFailureStages   map[string]int `json:"first_failure_stages"`
 	NativePathErrnos     map[string]int `json:"native_path_errnos"`
+	ProbeUninspectable   bool           `json:"probe_uninspectable"`
+	ParentUninspectable  bool           `json:"parent_uninspectable"`
+	DriverUninspectable  bool           `json:"driver_uninspectable"`
 }
 
 func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
@@ -87,19 +91,22 @@ func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
 		"trailing":  append(bytes.Clone(encoded), []byte("{}")...),
 	}
 	for name, mutate := range map[string]func(*installedProbeReport){
-		"version":             func(report *installedProbeReport) { report.Version = 2 },
-		"challenge":           func(report *installedProbeReport) { report.Challenge = strings.Repeat("ab", 32) },
-		"non-root":            func(report *installedProbeReport) { report.EffectiveUID = 501 },
-		"platform":            func(report *installedProbeReport) { report.Platform = "windows" },
-		"architecture":        func(report *installedProbeReport) { report.Architecture = "invalid" },
-		"roots":               func(report *installedProbeReport) { report.RootCount = 0 },
-		"partial-enumeration": func(report *installedProbeReport) { report.EnumerationComplete = false; report.Complete = false },
-		"missing-active":      func(report *installedProbeReport) { report.ActiveMatched = false; report.Complete = false },
-		"hidden-errors":       func(report *installedProbeReport) { report.ErrorCount = 1; report.OtherErrorCount = 1 },
-		"unknowns":            func(report *installedProbeReport) { report.GlobalUnknownCount = 1; report.Complete = false },
-		"negative-count":      func(report *installedProbeReport) { report.ErrorCount = -1 },
-		"invalid-counts":      func(report *installedProbeReport) { report.OtherErrorCount = 1 },
-		"false-complete":      func(report *installedProbeReport) { report.Complete = false },
+		"hidden-probe-unknown":  func(report *installedProbeReport) { report.ProbeUninspectable = true },
+		"hidden-parent-unknown": func(report *installedProbeReport) { report.ParentUninspectable = true },
+		"hidden-driver-unknown": func(report *installedProbeReport) { report.DriverUninspectable = true },
+		"version":               func(report *installedProbeReport) { report.Version = 2 },
+		"challenge":             func(report *installedProbeReport) { report.Challenge = strings.Repeat("ab", 32) },
+		"non-root":              func(report *installedProbeReport) { report.EffectiveUID = 501 },
+		"platform":              func(report *installedProbeReport) { report.Platform = "windows" },
+		"architecture":          func(report *installedProbeReport) { report.Architecture = "invalid" },
+		"roots":                 func(report *installedProbeReport) { report.RootCount = 0 },
+		"partial-enumeration":   func(report *installedProbeReport) { report.EnumerationComplete = false; report.Complete = false },
+		"missing-active":        func(report *installedProbeReport) { report.ActiveMatched = false; report.Complete = false },
+		"hidden-errors":         func(report *installedProbeReport) { report.ErrorCount = 1; report.OtherErrorCount = 1 },
+		"unknowns":              func(report *installedProbeReport) { report.GlobalUnknownCount = 1; report.Complete = false },
+		"negative-count":        func(report *installedProbeReport) { report.ErrorCount = -1 },
+		"invalid-counts":        func(report *installedProbeReport) { report.OtherErrorCount = 1 },
+		"false-complete":        func(report *installedProbeReport) { report.Complete = false },
 	} {
 		changed := valid
 		mutate(&changed)
@@ -145,6 +152,24 @@ func TestInstalledProbeValidatesDiagnosticCounts(test *testing.T) {
 	native.FirstFailureStages, native.NativePathErrnos = map[string]int{"executable": 1}, map[string]int{"ESRCH": 1}
 	if actual, err := decode(native); err == nil || actual.Version != 1 || actual.NativePathErrnos["ESRCH"] != 1 {
 		test.Fatal("valid native errno diagnostics were lost or passed incomplete collection")
+	}
+	for name, mutate := range map[string]func(*installedProbeReport){
+		"probe":  func(report *installedProbeReport) { report.ProbeUninspectable = true },
+		"parent": func(report *installedProbeReport) { report.ParentUninspectable = true },
+		"driver": func(report *installedProbeReport) { report.DriverUninspectable = true },
+		"parent-driver": func(report *installedProbeReport) {
+			report.ParentUninspectable, report.DriverUninspectable = true, true
+		},
+	} {
+		test.Run(name, func(test *testing.T) {
+			report := partial
+			report.UninspectableCount = 1
+			mutate(&report)
+			actual, err := decode(report)
+			if err == nil || actual.Version != 1 || actual.Complete || actual.ProbeUninspectable != report.ProbeUninspectable || actual.ParentUninspectable != report.ParentUninspectable || actual.DriverUninspectable != report.DriverUninspectable {
+				test.Fatal("valid actor diagnostics were lost or passed incomplete collection")
+			}
+		})
 	}
 	for name, mutate := range map[string]func(*installedProbeReport){
 		"unknown-native-code":    func(report *installedProbeReport) { report.NativePathErrnos = map[string]int{"private-host-data": 1} },
@@ -194,6 +219,9 @@ func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (i
 		}
 	}
 	if report.ErrorCount != report.DeniedErrorCount+report.MissingPathCount+report.OtherErrorCount+report.InvalidArgumentCount+report.NativeReadErrorCount {
+		return installedProbeReport{}, invalid
+	}
+	if report.UninspectableCount == 0 && (report.ProbeUninspectable || report.ParentUninspectable || report.DriverUninspectable) {
 		return installedProbeReport{}, invalid
 	}
 	stageTotal := 0
@@ -298,7 +326,7 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 		test.Fatal("generate private probe challenge")
 	}
 	request := installedProbeRequest{
-		Version: 1, Challenge: hex.EncodeToString(challenge), CallerUID: uint32(os.Getuid()),
+		Version: 1, Challenge: hex.EncodeToString(challenge), CallerUID: uint32(os.Getuid()), DriverPID: int32(os.Getpid()),
 		Roots: []string{repository.Root, active}, ActiveRoot: active,
 		ActivePID: int32(sleeper.Process.Pid), ActiveCreatedAt: created,
 	}
@@ -323,6 +351,7 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 	report, reportErr := decodeInstalledProbeReport(result.Stdout, request.Challenge, len(request.Roots))
 	if report.Version == 1 {
 		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d invalid_argument_error_strings=%d native_read_error_strings=%d first_failure_stages=%v native_path_errnos=%v", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount, report.FirstFailureStages, report.NativePathErrnos)
+		test.Logf("uninspectable harness actors: probe=%v parent=%v driver=%v", report.ProbeUninspectable, report.ParentUninspectable, report.DriverUninspectable)
 	}
 	if runErr != nil || result.ExitCode != 0 || len(result.Stderr) != 0 || reportErr != nil || !report.Complete {
 		test.Fatalf("native process/path feasibility not established: exit=%d stdout_bytes=%d stderr_bytes=%d report_error=%v; raw output withheld", result.ExitCode, len(result.Stdout), len(result.Stderr), reportErr)

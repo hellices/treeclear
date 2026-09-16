@@ -18,7 +18,7 @@ import (
 
 func validProbeRequest() probeRequest {
 	return probeRequest{
-		Version: 1, Challenge: strings.Repeat("a1", 32), CallerUID: 501,
+		Version: 1, Challenge: strings.Repeat("a1", 32), CallerUID: 501, DriverPID: 456,
 		Roots:      []string{"/fixture/primary", "/fixture/active"},
 		ActiveRoot: "/fixture/active", ActivePID: 123,
 		ActiveCreatedAt: time.Unix(1700000000, 123456000).UTC(),
@@ -97,6 +97,7 @@ func TestProbeRejectsMalformedRequests(test *testing.T) {
 		"long-root":              func(request *probeRequest) { request.Roots[0] = "/" + strings.Repeat("a", 4096) },
 		"unbound-active-root":    func(request *probeRequest) { request.ActiveRoot = "/other" },
 		"invalid-pid":            func(request *probeRequest) { request.ActivePID = 0 },
+		"invalid-driver-pid":     func(request *probeRequest) { request.DriverPID = 0 },
 		"missing-created":        func(request *probeRequest) { request.ActiveCreatedAt = time.Time{} },
 		"submicrosecond-created": func(request *probeRequest) { request.ActiveCreatedAt = request.ActiveCreatedAt.Add(time.Nanosecond) },
 	}
@@ -323,6 +324,36 @@ func TestProbeReportsOnlyFixedNativePathErrnos(test *testing.T) {
 			}
 			if len(report.NativePathErrnos) != 1 || report.NativePathErrnos[label] != 1 || bytes.Contains(output.Bytes(), []byte(marker)) {
 				test.Fatal("native errno category is missing, incorrect or exposes raw data")
+			}
+		})
+	}
+}
+
+func TestProbeReportsUninspectableHarnessActorsWithoutPIDs(test *testing.T) {
+	request := validProbeRequest()
+	for name, pid := range map[string]int32{
+		"probe": int32(os.Getpid()), "parent": int32(os.Getppid()), "driver": request.DriverPID,
+	} {
+		test.Run(name, func(test *testing.T) {
+			var output bytes.Buffer
+			collect := func(context.Context, []domain.Worktree) (process.Collection, []error) {
+				collection := completeProbeCollection(request)
+				collection.Uninspectable = map[int32]domain.ProcessEvidence{pid: {State: domain.EvidenceUnknown, Error: "private-host-data"}}
+				return collection, nil
+			}
+			if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect) != 1 {
+				test.Fatal("actor diagnostics accepted unknown evidence")
+			}
+			var report struct {
+				ProbeUninspectable  bool `json:"probe_uninspectable"`
+				ParentUninspectable bool `json:"parent_uninspectable"`
+				DriverUninspectable bool `json:"driver_uninspectable"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+				test.Fatal(err)
+			}
+			if report.ProbeUninspectable != (pid == int32(os.Getpid())) || report.ParentUninspectable != (pid == int32(os.Getppid())) || report.DriverUninspectable != (pid == request.DriverPID) || bytes.Contains(output.Bytes(), []byte("private-host-data")) || bytes.Contains(output.Bytes(), []byte("\"driver_pid\"")) {
+				test.Fatal("actor diagnostic was lost, incorrect or exposed raw data")
 			}
 		})
 	}

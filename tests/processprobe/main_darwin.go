@@ -22,6 +22,7 @@ type probeRequest struct {
 	Version         int       `json:"version"`
 	Challenge       string    `json:"challenge"`
 	CallerUID       uint32    `json:"caller_uid"`
+	DriverPID       int32     `json:"driver_pid"`
 	Roots           []string  `json:"roots"`
 	ActiveRoot      string    `json:"active_root"`
 	ActivePID       int32     `json:"active_pid"`
@@ -51,6 +52,9 @@ type probeReport struct {
 	Complete             bool           `json:"complete"`
 	FirstFailureStages   map[string]int `json:"first_failure_stages"`
 	NativePathErrnos     map[string]int `json:"native_path_errnos"`
+	ProbeUninspectable   bool           `json:"probe_uninspectable"`
+	ParentUninspectable  bool           `json:"parent_uninspectable"`
+	DriverUninspectable  bool           `json:"driver_uninspectable"`
 }
 
 type probeCollect func(context.Context, []domain.Worktree) (process.Collection, []error)
@@ -119,7 +123,7 @@ func validRequest(request probeRequest, callerUID uint32) bool {
 	if request.Version != 1 || err != nil || len(challenge) != 32 || hex.EncodeToString(challenge) != request.Challenge || request.CallerUID != callerUID {
 		return false
 	}
-	if len(request.Roots) == 0 || len(request.Roots) > 8 || request.ActivePID <= 0 || !request.ActiveCreatedAt.After(time.Unix(0, 0)) || request.ActiveCreatedAt.Nanosecond()%1000 != 0 {
+	if len(request.Roots) == 0 || len(request.Roots) > 8 || request.ActivePID <= 0 || request.DriverPID <= 0 || !request.ActiveCreatedAt.After(time.Unix(0, 0)) || request.ActiveCreatedAt.Nanosecond()%1000 != 0 {
 		return false
 	}
 	roots := make(map[string]bool, len(request.Roots))
@@ -143,6 +147,9 @@ func summarizeCollection(request probeRequest, effectiveUID int, collection proc
 		FirstFailureStages: make(map[string]int),
 		NativePathErrnos:   make(map[string]int),
 	}
+	_, report.ProbeUninspectable = collection.Uninspectable[int32(os.Getpid())]
+	_, report.ParentUninspectable = collection.Uninspectable[int32(os.Getppid())]
+	_, report.DriverUninspectable = collection.Uninspectable[request.DriverPID]
 	for _, root := range request.Roots {
 		if _, exists := collection.ByWorktree[root]; !exists {
 			report.RootsMatched = false
