@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -36,7 +35,7 @@ func defaultReadonlyIndexOperations() readonlyIndexOperations {
 
 func readonlyIndexDirectoryInfo(directory string) (fs.FileInfo, error) {
 	operations := defaultReadonlyIndexOperations()
-	operations.lstat = os.Lstat
+	operations.lstat = lstatReadonlyIndexDirectory
 	return readonlyIndexDirectoryInfoWithOperations(directory, operations)
 }
 
@@ -59,7 +58,7 @@ func readonlyIndexDirectoryInfoWithOperations(directory string, operations reado
 	if err == nil {
 		err = validateReadNativeInfo(opened)
 	}
-	if err == nil && (information.Mode() != opened.Mode() || information.Size() != opened.Size() || !information.ModTime().Equal(opened.ModTime()) || runtime.GOOS != "windows" && !os.SameFile(information, opened)) {
+	if err == nil && !sameReadonlyIndexDirectory(information, opened) {
 		err = fmt.Errorf("%w: Git administrative directory changed while opening its initial observation: %q", ErrWorktreeChanged, directory)
 	}
 	if err := errors.Join(err, operations.close(file)); err != nil {

@@ -140,11 +140,11 @@ func (client *Client) verifyCommonGitDir(ctx context.Context, worktree, expected
 	if err != nil {
 		return err
 	}
-	registeredInfo, err := os.Stat(expected)
+	registeredInfo, err := readonlyIndexRootInfo(ctx, expected, defaultReadonlyIndexOperations())
 	if err != nil {
 		return err
 	}
-	effectiveInfo, err := os.Stat(effective)
+	effectiveInfo, err := readonlyIndexRootInfo(ctx, effective, defaultReadonlyIndexOperations())
 	if err != nil {
 		return err
 	}

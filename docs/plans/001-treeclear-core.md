@@ -3340,6 +3340,58 @@ source-file hash remained unchanged across the matrix. Windows test-binary
 cross-compilation also passed, without claiming native execution. Native
 Windows verification and independent review remain required before merge.
 
+#### PR #14 feedback follow-up (2026-09-16)
+
+The user explicitly requested acting on the two existing review threads. This
+follow-up changes neither the accepted explicit-directory-alias policy nor the
+previously blocked independent-review gate. No alternative-model retry,
+substitute approval, merge, or dependent stage is requested here.
+
+The tests-only head `3b789eb8e4fd1cdd04121222455362d376ae5160` exposed a remaining
+preliminary-comparison gap: replacing the registered canonical common-directory
+path with an alias to the same native directory still returned success from
+`verifyCommonGitDir`. The owned fixture failed locally on Go 1.26.5 darwin/arm64
+and on both native jobs of CI `35063157943`. The correction replaces both
+unguarded `os.Stat` observations at that comparison with the existing canonical,
+native-validated directory observation. Explicit aliases in Git's reported
+paths still resolve through the existing native resolver; a previously recorded
+canonical root cannot silently become an alias before comparison. No later
+routing check is used as the justification for these preliminary observations.
+
+The same tests-only run also reproduced a Windows initial-identity gap. Two
+owned directories had identical mode, size and modification time but distinct
+eager native identities. Replacing the first before opening the next observation
+was accepted, reaching one preflight open and one enumeration without error.
+The retained initial-identity test passed on macOS and failed on native Windows;
+that platform distinction is not inferred from a cross-build. The correction
+obtains Windows initial metadata from a bounded native nofollow read-attributes
+handle, checks its close result, and compares native identity on every platform
+before returning the next observation. Unix keeps its native `os.Lstat`
+observation. The earlier Windows raw-Lstat limitation is avoided by changing
+the initial observation provider, not by treating a later pathname lookup as
+the original file ID. A separate native-provider regression compares its
+retained identity only after a same-metadata pathname replacement.
+
+The tests-only Windows run also exposed an incorrect test-oracle assumption:
+Go's `filepath.EvalSymlinks` retained the junction spelling in a postcondition.
+The intended unsafe-acceptance assertion had already failed. The corrected
+fixture checks the moved directory and alias against retained eager native
+identities before invoking the comparison, instead of relying on that pathname
+spelling. It still requires rejection of the replaced root, with a changed-root
+or unsupported-native-object cause as appropriate for the platform. The stable
+root and supported explicit-alias controls must continue to pass. This fixture
+correction is recorded separately from product failure and is not counted as
+an additional production defect or native acceptance result.
+
+Only ordinary Go tests and owned temporary fixtures are used. Unknown evidence,
+native attribute checks, read-only behavior, checked closure and cancellation
+remain protective. The first authoritative Windows identity is the first
+native handle observation; no identity before that observation, atomicity or
+ABA immunity is claimed. Revision-bound local and native verification results
+are recorded in PR #14 after validation; the failing tests-only run is not
+acceptance evidence. The two original threads still require independent
+assessment of the corrected boundaries and supported alias policy before merge.
+
 ### Remaining Task 8 lifecycle
 
 **Files:**

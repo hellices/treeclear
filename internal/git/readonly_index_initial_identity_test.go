@@ -71,3 +71,35 @@ func TestReadonlyIndexInitialObservationRejectsSameMetadataReplacement(test *tes
 		test.Fatal("fixture did not preserve the first native identity or isolate a same-metadata directory replacement")
 	}
 }
+
+func TestReadonlyIndexNativeInitialMetadataRetainsIdentity(test *testing.T) {
+	fixture := readonlyIndexCanonicalTemporaryDirectory(test)
+	directory := filepath.Join(fixture, "admin")
+	replacement := filepath.Join(fixture, "replacement")
+	for _, path := range []string{directory, replacement} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			test.Fatal(err)
+		}
+	}
+	original := readonlyIndexInitialPinnedInfo(test, directory)
+	if err := os.Chtimes(replacement, original.ModTime(), original.ModTime()); err != nil {
+		test.Fatal(err)
+	}
+	observed, err := lstatReadonlyIndexDirectory(directory)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if err := os.Rename(directory, filepath.Join(fixture, "moved")); err != nil {
+		test.Fatal(err)
+	}
+	if err := os.Rename(replacement, directory); err != nil {
+		test.Fatal(err)
+	}
+	current := readonlyIndexInitialPinnedInfo(test, directory)
+	if os.SameFile(original, current) || original.Mode() != current.Mode() || original.Size() != current.Size() || !original.ModTime().Equal(current.ModTime()) {
+		test.Fatal("fixture must replace only the original directory identity")
+	}
+	if !os.SameFile(observed, original) || os.SameFile(observed, current) {
+		test.Fatal("initial native metadata reloaded the replaced pathname instead of retaining its first identity")
+	}
+}

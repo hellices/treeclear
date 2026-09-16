@@ -37,20 +37,19 @@ func assertCommonIdentityRejectsReplacedAlias(test *testing.T, makeAlias func(*t
 						test.Fatal(err)
 					}
 					makeAlias(test, fixture, common, moved)
+					if !os.SameFile(initial, readonlyIndexInitialPinnedInfo(test, moved)) || !os.SameFile(initial, readonlyIndexInitialPinnedInfo(test, common)) {
+						test.Fatal("replacement alias does not retain the original native directory identity")
+					}
 				}
 				return execx.Result{Stdout: []byte(filepath.ToSlash(common) + "\n")}, nil
 			}))
 			err := client.verifyCommonGitDir(test.Context(), fixture, common)
-			if calls != 1 || errors.Is(err, ErrWorktreeChanged) != replace || !replace && err != nil {
+			if calls != 1 || replace && !errors.Is(err, ErrWorktreeChanged) && !errors.Is(err, errors.ErrUnsupported) || !replace && err != nil {
 				test.Errorf("common comparison accepted a replaced canonical path: replace=%t calls=%d error=%v", replace, calls, err)
 			}
 			retained := common
 			if replace {
 				retained = moved
-				resolved, resolveErr := filepath.EvalSymlinks(common)
-				if resolveErr != nil || resolved != moved {
-					test.Fatalf("replacement did not retain an alias to the original directory: %q, %v", resolved, resolveErr)
-				}
 			}
 			if !os.SameFile(initial, readonlyIndexInitialPinnedInfo(test, retained)) {
 				test.Fatal("fixture changed the native common-store identity instead of only its canonical path")
