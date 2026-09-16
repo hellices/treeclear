@@ -36,7 +36,7 @@ func parseStatusPorcelainZPaths(contents []byte, collectUntracked bool) (domain.
 		case '?':
 			if collectUntracked {
 				if len(untrackedPaths) == maxStatusUntrackedPaths {
-					return domain.GitStatus{}, nil, errors.New("Git status untracked path count exceeds limit")
+					return domain.GitStatus{}, nil, fmt.Errorf("Git status untracked path count exceeds limit: %w", ErrReadLimit)
 				}
 				untrackedPaths = append(untrackedPaths, record[2:])
 			}

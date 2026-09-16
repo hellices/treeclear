@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -60,7 +61,7 @@ func TestParseStatusPathsBoundsOnlyRetainedPaths(test *testing.T) {
 			contents := statusPathsCountFixture(count)
 			status, paths, err := parseStatusPorcelainZPaths(contents, true)
 			if count > 4096 {
-				if err == nil || status != (domain.GitStatus{}) || paths != nil {
+				if !errors.Is(err, ErrReadLimit) || status != (domain.GitStatus{}) || paths != nil {
 					test.Fatalf("over-limit parse returned status %#v, %d paths, error %v", status, len(paths), err)
 				}
 			} else if err != nil || status.Untracked != count || len(paths) != count {

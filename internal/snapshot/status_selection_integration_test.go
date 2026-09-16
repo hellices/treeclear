@@ -106,7 +106,7 @@ func TestStatusSelectionNativeGitReadUntrackedCodecComposition(test *testing.T) 
 	if selection.Status != wantedStatus || !bytes.Equal(selection.Raw, originalRaw) || !slices.Equal(selection.UntrackedPaths, originalPaths) {
 		test.Fatal("reader/codec composition changed the Git observation input")
 	}
-	if !slices.Equal(runner.commands, []string{"rev-parse", "config", "ls-files", "status"}) || len(runner.statusOutputs) != 1 {
+	if !slices.Equal(runner.commands, []string{"rev-parse", "config", "rev-parse", "ls-files", "rev-parse", "status"}) || len(runner.statusOutputs) != 1 {
 		test.Fatalf("composition did not use exactly one guarded Git status observation: %q", runner.commands)
 	}
 	if sourcesAfter := untrackedReadIntegrationEntries(test, worktree, sourceNames); !reflect.DeepEqual(sourcesAfter, sourcesBefore) {
