@@ -65,7 +65,7 @@ func TestProbeRejectsUnprivilegedAndInvalidCaller(test *testing.T) {
 				called = true
 				return process.Collection{}, nil
 			}
-			status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, validProbeRequest())), &output, identity.effectiveID, identity.originalID, collect)
+			status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, validProbeRequest())), &output, identity.effectiveID, identity.originalID, collect, nil)
 			if status == 0 || called || output.Len() != 0 {
 				test.Fatal("invalid privilege or caller reached collection or emitted a report")
 			}
@@ -114,7 +114,7 @@ func TestProbeRejectsMalformedRequests(test *testing.T) {
 				called = true
 				return process.Collection{}, nil
 			}
-			if runProbe(test.Context(), bytes.NewReader(input), &output, 0, "501", collect) == 0 || called || output.Len() != 0 {
+			if runProbe(test.Context(), bytes.NewReader(input), &output, 0, "501", collect, nil) == 0 || called || output.Len() != 0 {
 				test.Fatal("invalid request was accepted or reached collection")
 			}
 		})
@@ -138,7 +138,7 @@ func TestProbeReportsExactActiveIdentityAndScope(test *testing.T) {
 		}
 		return completeProbeCollection(request), nil
 	}
-	if status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect); status != 0 {
+	if status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect, nil); status != 0 {
 		test.Fatalf("complete probe exited %d", status)
 	}
 	var report probeReport
@@ -197,7 +197,7 @@ func TestProbeFailsEveryPartialCollection(test *testing.T) {
 				failures := mutate(&collection)
 				return collection, failures
 			}
-			status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect)
+			status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect, nil)
 			var report probeReport
 			if err := json.Unmarshal(output.Bytes(), &report); err != nil {
 				test.Fatal(err)
@@ -216,10 +216,10 @@ func TestProbePropagatesCancellationAndOutputFailure(test *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(test.Context())
 	cancel()
-	if runProbe(ctx, bytes.NewReader(encodeProbeRequest(test, request)), io.Discard, 0, "501", collect) == 0 {
+	if runProbe(ctx, bytes.NewReader(encodeProbeRequest(test, request)), io.Discard, 0, "501", collect, nil) == 0 {
 		test.Fatal("canceled probe passed")
 	}
-	if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), probeFailedWriter{}, 0, "501", collect) == 0 {
+	if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), probeFailedWriter{}, 0, "501", collect, nil) == 0 {
 		test.Fatal("failed output passed")
 	}
 }
@@ -234,7 +234,7 @@ func TestProbeCountsErrorsWithoutExposingDetails(test *testing.T) {
 			errors.New("private-command: unexpected failure"),
 		}
 	}
-	if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect) != 1 {
+	if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect, nil) != 1 {
 		test.Fatal("collection errors did not fail the probe")
 	}
 	var report probeReport
@@ -277,7 +277,7 @@ func TestProbeReportsOnlyFixedFailureStages(test *testing.T) {
 			collect := func(context.Context, []domain.Worktree) (process.Collection, []error) {
 				return completeProbeCollection(request), []error{errors.New(fixture.message)}
 			}
-			if status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect); status != 1 {
+			if status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect, nil); status != 1 {
 				test.Fatalf("diagnosed error exited %d, want failure", status)
 			}
 			var report struct {
@@ -313,7 +313,7 @@ func TestProbeReportsOnlyFixedNativePathErrnos(test *testing.T) {
 			collect := func(context.Context, []domain.Worktree) (process.Collection, []error) {
 				return completeProbeCollection(request), []error{errors.New("process 123: executable: proc_pidpath errno " + code + ": " + marker)}
 			}
-			if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect) != 1 {
+			if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect, nil) != 1 {
 				test.Fatal("native error diagnostics hid incomplete collection")
 			}
 			var report struct {
@@ -341,7 +341,7 @@ func TestProbeReportsUninspectableHarnessActorsWithoutPIDs(test *testing.T) {
 				collection.Uninspectable = map[int32]domain.ProcessEvidence{pid: {State: domain.EvidenceUnknown, Error: "private-host-data"}}
 				return collection, nil
 			}
-			if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect) != 1 {
+			if runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect, nil) != 1 {
 				test.Fatal("actor diagnostics accepted unknown evidence")
 			}
 			var report struct {
@@ -377,7 +377,7 @@ func TestProbeRetainsFullCollectorPathValidation(test *testing.T) {
 		}
 		collector := process.Collector{Source: probeFixtureSource{info: info}}
 		var output bytes.Buffer
-		status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collector.Collect)
+		status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collector.Collect, nil)
 		if (status == 0) != validExecutable {
 			test.Fatal("probe skipped collector file-type/path validation or rejected a valid fixture")
 		}

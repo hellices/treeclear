@@ -76,6 +76,7 @@ test-only native experiment, not a new privileged product entry point.
 
 Files: `tests/processprobe/main_darwin.go`,
 `tests/processprobe/main_darwin_test.go`,
+`tests/processprobe/roles_darwin.go`, `tests/processprobe/roles_darwin_test.go`,
 `tests/e2e/process_probe_darwin_test.go`, `.github/workflows/ci.yml`,
 this plan, the permission spec, and `docs/installation.md`.
 
@@ -174,6 +175,34 @@ authentication, ownership or proof of relevance. Parent and driver may be the
 same process. The receiver rejects any true flag with a zero uninspectable
 count before logging; flags never change selection or completeness. Review
 and an explicit installed rerun remain required for this follow-up.
+
+The reviewed actor-diagnostic head `bfb724f` was tested in explicit run
+`35043471222`, job `104628168728`, on macOS 15.7.9 (24G830) arm64. Installed
+probe SHA-256 was
+`fe8d00d4c50376d119ce40bf280528dd73112e2b207a6f25e8a112d4f708bdff`.
+The same native executable ENOENT and single global unknown remained, with
+`probe=false parent=false driver=false`. Ordinary native macOS/Windows CI,
+root-side expiry and fixture checks passed; feasibility still failed. Follow-up
+AI static review found no established harness early-unlink or result-interpretation
+defect. These observations do not identify the affected process or its cause.
+
+The next test-only diagnostic samples at most 16 retained uninspectable
+identities in deterministic PID order. Fixed-size native metadata reads bracket
+one parent lookup with two target reads; the target must still match the saved
+PID/start-time and the two target records must agree. Both target and parent
+names become fixed role hints such as CI worker, CI listener, Go tool, shell or
+other; raw names and identifiers never enter reports. Unavailable, changed and
+unsampled counts remain explicit. Sampling respects the existing context and
+watchdog and never changes source selection, collector validation or completeness.
+The parent validates both role vocabularies, positive bounded counts and totals
+equal to the retained uninspectable count before logging. It also enforces the
+shared 16-entry sampling budget, identical unsampled and identity-changed
+counts, and at least as many unavailable parents as unavailable targets.
+Inputs above 65,536 entries and a missing metadata reader are wholly unsampled.
+Name-based hints are
+not executable attestation, ownership, authentication or evidence of irrelevance.
+Review and a new explicit installed run are required before attributing the CI
+failure; no role, including a CI runner or system-init hint, permits exclusion.
 
 ### Slice A review and merge completion
 

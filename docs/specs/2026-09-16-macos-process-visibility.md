@@ -121,6 +121,30 @@ nor relevance. Parent and driver can coincide. Any true flag with a zero
 uninspectable count invalidates the report before logging. Raw PIDs remain
 private, and the flags never change completeness or the processes inspected.
 
+For a retained uninspectable entry, the test-only probe may additionally read
+fixed-size native process metadata to produce target/parent role histograms.
+It samples at most 16 entries in deterministic PID order, with at most three
+metadata reads per entry and a context check between reads. Inputs exceeding
+65,536 entries are not sampled or allocated into another PID list. A missing
+metadata reader also marks every entry as not sampled, not unavailable. Two target
+reads bracket a parent read; the target PID/start-time must match the collection
+and both target records must agree before attribution. A parent hint also
+requires the requested parent PID and an earlier positive creation time.
+This is a bounded observation, not an atomic ancestry snapshot.
+
+Only fixed labels for CI listener/worker, Go/Node tool, shell, system init,
+other, unavailable, changed identity and unsampled entries leave the private
+protocol. Both histograms retain all entries as counts; the receiver rejects
+unknown labels, non-positive/oversized values or totals differing from the
+uninspectable count before logging. Both maps must have identical unsampled
+and identity-changed counts; the parent unavailable count must be at least the
+target unavailable count. The shared sampled count cannot exceed 16 and must
+be zero for inputs above 65,536 entries. Raw names, PIDs, parent PIDs, owners,
+paths, arguments and metadata errors remain private. Process names are
+spoofable hints, not image attestation, caller authentication, ownership or
+proof of worktree irrelevance. These labels never filter a process, clear an
+error, substitute an executable path or qualify incomplete collection.
+
 The operator must trust the exact test executable before authorizing it. The
 private pipe and challenge prevent accidental response mixups; they are not a
 sandbox or protection against malicious code already controlling the caller's

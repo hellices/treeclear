@@ -30,31 +30,33 @@ type probeRequest struct {
 }
 
 type probeReport struct {
-	Version              int            `json:"version"`
-	Challenge            string         `json:"challenge"`
-	Platform             string         `json:"platform"`
-	Architecture         string         `json:"architecture"`
-	EffectiveUID         int            `json:"effective_uid"`
-	RootCount            int            `json:"root_count"`
-	RootsMatched         bool           `json:"roots_matched"`
-	EnumerationComplete  bool           `json:"enumeration_complete"`
-	ErrorCount           int            `json:"error_count"`
-	RetainedErrorCount   int            `json:"retained_error_count"`
-	UninspectableCount   int            `json:"uninspectable_count"`
-	GlobalUnknownCount   int            `json:"global_unknown_count"`
-	ScopedUnknownCount   int            `json:"scoped_unknown_count"`
-	DeniedErrorCount     int            `json:"denied_error_count"`
-	MissingPathCount     int            `json:"missing_path_count"`
-	OtherErrorCount      int            `json:"other_error_count"`
-	InvalidArgumentCount int            `json:"invalid_argument_count"`
-	NativeReadErrorCount int            `json:"native_read_error_count"`
-	ActiveMatched        bool           `json:"active_matched"`
-	Complete             bool           `json:"complete"`
-	FirstFailureStages   map[string]int `json:"first_failure_stages"`
-	NativePathErrnos     map[string]int `json:"native_path_errnos"`
-	ProbeUninspectable   bool           `json:"probe_uninspectable"`
-	ParentUninspectable  bool           `json:"parent_uninspectable"`
-	DriverUninspectable  bool           `json:"driver_uninspectable"`
+	Version                  int            `json:"version"`
+	Challenge                string         `json:"challenge"`
+	Platform                 string         `json:"platform"`
+	Architecture             string         `json:"architecture"`
+	EffectiveUID             int            `json:"effective_uid"`
+	RootCount                int            `json:"root_count"`
+	RootsMatched             bool           `json:"roots_matched"`
+	EnumerationComplete      bool           `json:"enumeration_complete"`
+	ErrorCount               int            `json:"error_count"`
+	RetainedErrorCount       int            `json:"retained_error_count"`
+	UninspectableCount       int            `json:"uninspectable_count"`
+	GlobalUnknownCount       int            `json:"global_unknown_count"`
+	ScopedUnknownCount       int            `json:"scoped_unknown_count"`
+	DeniedErrorCount         int            `json:"denied_error_count"`
+	MissingPathCount         int            `json:"missing_path_count"`
+	OtherErrorCount          int            `json:"other_error_count"`
+	InvalidArgumentCount     int            `json:"invalid_argument_count"`
+	NativeReadErrorCount     int            `json:"native_read_error_count"`
+	ActiveMatched            bool           `json:"active_matched"`
+	Complete                 bool           `json:"complete"`
+	FirstFailureStages       map[string]int `json:"first_failure_stages"`
+	NativePathErrnos         map[string]int `json:"native_path_errnos"`
+	ProbeUninspectable       bool           `json:"probe_uninspectable"`
+	ParentUninspectable      bool           `json:"parent_uninspectable"`
+	DriverUninspectable      bool           `json:"driver_uninspectable"`
+	UninspectableRoles       map[string]int `json:"uninspectable_roles"`
+	UninspectableParentRoles map[string]int `json:"uninspectable_parent_roles"`
 }
 
 type probeCollect func(context.Context, []domain.Worktree) (process.Collection, []error)
@@ -64,7 +66,7 @@ func main() {
 	status := 2
 	if len(os.Args) == 1 {
 		collector := process.Collector{Source: process.NativeSource()}
-		status = runProbe(context.Background(), os.Stdin, os.Stdout, os.Geteuid(), os.Getenv("SUDO_UID"), collector.Collect)
+		status = runProbe(context.Background(), os.Stdin, os.Stdout, os.Geteuid(), os.Getenv("SUDO_UID"), collector.Collect, readProbeProcessRecord)
 	}
 	watchdog.Stop()
 	if status == 2 {
@@ -73,7 +75,7 @@ func main() {
 	os.Exit(status)
 }
 
-func runProbe(ctx context.Context, input io.Reader, output io.Writer, effectiveUID int, originalUID string, collect probeCollect) int {
+func runProbe(ctx context.Context, input io.Reader, output io.Writer, effectiveUID int, originalUID string, collect probeCollect, read probeProcessRead) int {
 	if effectiveUID != 0 || ctx.Err() != nil || collect == nil {
 		return 2
 	}
@@ -104,6 +106,7 @@ func runProbe(ctx context.Context, input io.Reader, output io.Writer, effectiveU
 		failures = append(failures, err)
 	}
 	report := summarizeCollection(request, effectiveUID, collection, failures)
+	report.UninspectableRoles, report.UninspectableParentRoles = sampleProbeProcessRoles(collectionContext, collection.Uninspectable, read)
 	encoded, err := json.Marshal(report)
 	if err != nil || len(encoded) >= 16384 {
 		return 2

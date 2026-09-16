@@ -39,31 +39,33 @@ type installedProbeRequest struct {
 }
 
 type installedProbeReport struct {
-	Version              int            `json:"version"`
-	Challenge            string         `json:"challenge"`
-	Platform             string         `json:"platform"`
-	Architecture         string         `json:"architecture"`
-	EffectiveUID         int            `json:"effective_uid"`
-	RootCount            int            `json:"root_count"`
-	RootsMatched         bool           `json:"roots_matched"`
-	EnumerationComplete  bool           `json:"enumeration_complete"`
-	ErrorCount           int            `json:"error_count"`
-	RetainedErrorCount   int            `json:"retained_error_count"`
-	UninspectableCount   int            `json:"uninspectable_count"`
-	GlobalUnknownCount   int            `json:"global_unknown_count"`
-	ScopedUnknownCount   int            `json:"scoped_unknown_count"`
-	DeniedErrorCount     int            `json:"denied_error_count"`
-	MissingPathCount     int            `json:"missing_path_count"`
-	OtherErrorCount      int            `json:"other_error_count"`
-	InvalidArgumentCount int            `json:"invalid_argument_count"`
-	NativeReadErrorCount int            `json:"native_read_error_count"`
-	ActiveMatched        bool           `json:"active_matched"`
-	Complete             bool           `json:"complete"`
-	FirstFailureStages   map[string]int `json:"first_failure_stages"`
-	NativePathErrnos     map[string]int `json:"native_path_errnos"`
-	ProbeUninspectable   bool           `json:"probe_uninspectable"`
-	ParentUninspectable  bool           `json:"parent_uninspectable"`
-	DriverUninspectable  bool           `json:"driver_uninspectable"`
+	Version                  int            `json:"version"`
+	Challenge                string         `json:"challenge"`
+	Platform                 string         `json:"platform"`
+	Architecture             string         `json:"architecture"`
+	EffectiveUID             int            `json:"effective_uid"`
+	RootCount                int            `json:"root_count"`
+	RootsMatched             bool           `json:"roots_matched"`
+	EnumerationComplete      bool           `json:"enumeration_complete"`
+	ErrorCount               int            `json:"error_count"`
+	RetainedErrorCount       int            `json:"retained_error_count"`
+	UninspectableCount       int            `json:"uninspectable_count"`
+	GlobalUnknownCount       int            `json:"global_unknown_count"`
+	ScopedUnknownCount       int            `json:"scoped_unknown_count"`
+	DeniedErrorCount         int            `json:"denied_error_count"`
+	MissingPathCount         int            `json:"missing_path_count"`
+	OtherErrorCount          int            `json:"other_error_count"`
+	InvalidArgumentCount     int            `json:"invalid_argument_count"`
+	NativeReadErrorCount     int            `json:"native_read_error_count"`
+	ActiveMatched            bool           `json:"active_matched"`
+	Complete                 bool           `json:"complete"`
+	FirstFailureStages       map[string]int `json:"first_failure_stages"`
+	NativePathErrnos         map[string]int `json:"native_path_errnos"`
+	ProbeUninspectable       bool           `json:"probe_uninspectable"`
+	ParentUninspectable      bool           `json:"parent_uninspectable"`
+	DriverUninspectable      bool           `json:"driver_uninspectable"`
+	UninspectableRoles       map[string]int `json:"uninspectable_roles"`
+	UninspectableParentRoles map[string]int `json:"uninspectable_parent_roles"`
 }
 
 func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
@@ -91,22 +93,24 @@ func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
 		"trailing":  append(bytes.Clone(encoded), []byte("{}")...),
 	}
 	for name, mutate := range map[string]func(*installedProbeReport){
-		"hidden-probe-unknown":  func(report *installedProbeReport) { report.ProbeUninspectable = true },
-		"hidden-parent-unknown": func(report *installedProbeReport) { report.ParentUninspectable = true },
-		"hidden-driver-unknown": func(report *installedProbeReport) { report.DriverUninspectable = true },
-		"version":               func(report *installedProbeReport) { report.Version = 2 },
-		"challenge":             func(report *installedProbeReport) { report.Challenge = strings.Repeat("ab", 32) },
-		"non-root":              func(report *installedProbeReport) { report.EffectiveUID = 501 },
-		"platform":              func(report *installedProbeReport) { report.Platform = "windows" },
-		"architecture":          func(report *installedProbeReport) { report.Architecture = "invalid" },
-		"roots":                 func(report *installedProbeReport) { report.RootCount = 0 },
-		"partial-enumeration":   func(report *installedProbeReport) { report.EnumerationComplete = false; report.Complete = false },
-		"missing-active":        func(report *installedProbeReport) { report.ActiveMatched = false; report.Complete = false },
-		"hidden-errors":         func(report *installedProbeReport) { report.ErrorCount = 1; report.OtherErrorCount = 1 },
-		"unknowns":              func(report *installedProbeReport) { report.GlobalUnknownCount = 1; report.Complete = false },
-		"negative-count":        func(report *installedProbeReport) { report.ErrorCount = -1 },
-		"invalid-counts":        func(report *installedProbeReport) { report.OtherErrorCount = 1 },
-		"false-complete":        func(report *installedProbeReport) { report.Complete = false },
+		"hidden-probe-unknown":     func(report *installedProbeReport) { report.ProbeUninspectable = true },
+		"hidden-parent-unknown":    func(report *installedProbeReport) { report.ParentUninspectable = true },
+		"hidden-driver-unknown":    func(report *installedProbeReport) { report.DriverUninspectable = true },
+		"hidden-role-count":        func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"ci-worker": 1} },
+		"hidden-parent-role-count": func(report *installedProbeReport) { report.UninspectableParentRoles = map[string]int{"ci-listener": 1} },
+		"version":                  func(report *installedProbeReport) { report.Version = 2 },
+		"challenge":                func(report *installedProbeReport) { report.Challenge = strings.Repeat("ab", 32) },
+		"non-root":                 func(report *installedProbeReport) { report.EffectiveUID = 501 },
+		"platform":                 func(report *installedProbeReport) { report.Platform = "windows" },
+		"architecture":             func(report *installedProbeReport) { report.Architecture = "invalid" },
+		"roots":                    func(report *installedProbeReport) { report.RootCount = 0 },
+		"partial-enumeration":      func(report *installedProbeReport) { report.EnumerationComplete = false; report.Complete = false },
+		"missing-active":           func(report *installedProbeReport) { report.ActiveMatched = false; report.Complete = false },
+		"hidden-errors":            func(report *installedProbeReport) { report.ErrorCount = 1; report.OtherErrorCount = 1 },
+		"unknowns":                 func(report *installedProbeReport) { report.GlobalUnknownCount = 1; report.Complete = false },
+		"negative-count":           func(report *installedProbeReport) { report.ErrorCount = -1 },
+		"invalid-counts":           func(report *installedProbeReport) { report.OtherErrorCount = 1 },
+		"false-complete":           func(report *installedProbeReport) { report.Complete = false },
 	} {
 		changed := valid
 		mutate(&changed)
@@ -164,6 +168,8 @@ func TestInstalledProbeValidatesDiagnosticCounts(test *testing.T) {
 		test.Run(name, func(test *testing.T) {
 			report := partial
 			report.UninspectableCount = 1
+			report.UninspectableRoles = map[string]int{"other": 1}
+			report.UninspectableParentRoles = map[string]int{"unavailable": 1}
 			mutate(&report)
 			actual, err := decode(report)
 			if err == nil || actual.Version != 1 || actual.Complete || actual.ProbeUninspectable != report.ProbeUninspectable || actual.ParentUninspectable != report.ParentUninspectable || actual.DriverUninspectable != report.DriverUninspectable {
@@ -199,6 +205,89 @@ func TestInstalledProbeValidatesDiagnosticCounts(test *testing.T) {
 	}
 }
 
+func TestInstalledProbeValidatesRoleDiagnostics(test *testing.T) {
+	challenge := strings.Repeat("12", 32)
+	partial := installedProbeReport{
+		Version: 1, Challenge: challenge, Platform: "darwin", Architecture: runtime.GOARCH,
+		RootCount: 2, RootsMatched: true, EnumerationComplete: true, ActiveMatched: true,
+		UninspectableCount: 1, UninspectableRoles: map[string]int{"ci-worker": 1},
+		UninspectableParentRoles: map[string]int{"ci-listener": 1},
+	}
+	decode := func(report installedProbeReport) (installedProbeReport, error) {
+		contents, err := json.Marshal(report)
+		if err != nil {
+			test.Fatal(err)
+		}
+		return decodeInstalledProbeReport(contents, challenge, 2)
+	}
+	for _, role := range []string{"ci-listener", "ci-worker", "go-tool", "node-tool", "shell", "system-init", "other", "unavailable", "identity-changed", "not-sampled"} {
+		report := partial
+		report.UninspectableRoles, report.UninspectableParentRoles = map[string]int{role: 1}, map[string]int{role: 1}
+		actual, err := decode(report)
+		if err == nil || actual.Version != 1 || actual.Complete || actual.UninspectableRoles[role] != 1 || actual.UninspectableParentRoles[role] != 1 {
+			test.Fatal("valid role diagnostics were lost or qualified unknown evidence")
+		}
+	}
+	for _, count := range []int{17, 65537} {
+		report := partial
+		report.UninspectableCount = count
+		report.UninspectableRoles = map[string]int{"not-sampled": count}
+		report.UninspectableParentRoles = map[string]int{"not-sampled": count}
+		actual, err := decode(report)
+		if err == nil || actual.Version != 1 || actual.Complete || actual.UninspectableRoles["not-sampled"] != count {
+			test.Fatal("valid unsampled diagnostics were lost or qualified unknown evidence")
+		}
+	}
+	bounded := partial
+	bounded.UninspectableCount = 17
+	bounded.UninspectableRoles = map[string]int{"other": 16, "not-sampled": 1}
+	bounded.UninspectableParentRoles = map[string]int{"unavailable": 16, "not-sampled": 1}
+	if actual, err := decode(bounded); err == nil || actual.Version != 1 || actual.Complete {
+		test.Fatal("valid bounded sampling was rejected or qualified unknown evidence")
+	}
+	for name, mutate := range map[string]func(*installedProbeReport){
+		"unknown-role": func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"private-host-data": 1} },
+		"unknown-parent": func(report *installedProbeReport) {
+			report.UninspectableParentRoles = map[string]int{"private-host-data": 1}
+		},
+		"missing-roles":      func(report *installedProbeReport) { report.UninspectableRoles = nil },
+		"missing-parents":    func(report *installedProbeReport) { report.UninspectableParentRoles = nil },
+		"negative-role":      func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"other": -1} },
+		"zero-role":          func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"other": 1, "shell": 0} },
+		"oversized-role":     func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"other": 1048577} },
+		"wrong-role-total":   func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"other": 2} },
+		"wrong-parent-total": func(report *installedProbeReport) { report.UninspectableParentRoles = map[string]int{"other": 2} },
+		"exceeded-sampling-budget": func(report *installedProbeReport) {
+			report.UninspectableCount = 17
+			report.UninspectableRoles, report.UninspectableParentRoles = map[string]int{"other": 17}, map[string]int{"ci-worker": 17}
+		},
+		"exceeded-unavailable-budget": func(report *installedProbeReport) {
+			report.UninspectableCount = 17
+			report.UninspectableRoles, report.UninspectableParentRoles = map[string]int{"unavailable": 17}, map[string]int{"unavailable": 17}
+		},
+		"inconsistent-sampling-coverage": func(report *installedProbeReport) {
+			report.UninspectableCount = 17
+			report.UninspectableRoles = map[string]int{"other": 16, "not-sampled": 1}
+			report.UninspectableParentRoles = map[string]int{"ci-worker": 15, "not-sampled": 2}
+		},
+		"sampled-oversized-input": func(report *installedProbeReport) {
+			report.UninspectableCount = 65537
+			report.UninspectableRoles, report.UninspectableParentRoles = map[string]int{"other": 1, "not-sampled": 65536}, map[string]int{"ci-worker": 1, "not-sampled": 65536}
+		},
+		"inconsistent-changed-identity": func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"identity-changed": 1} },
+		"attributed-unavailable-parent": func(report *installedProbeReport) { report.UninspectableRoles = map[string]int{"unavailable": 1} },
+	} {
+		test.Run(name, func(test *testing.T) {
+			report := partial
+			mutate(&report)
+			actual, err := decode(report)
+			if err == nil || actual.Version != 0 || strings.Contains(err.Error(), "private-host-data") {
+				test.Fatal("invalid role diagnostics were retained or exposed")
+			}
+		})
+	}
+}
+
 func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (installedProbeReport, error) {
 	var report installedProbeReport
 	invalid := errors.New("invalid process probe report; raw output withheld")
@@ -222,6 +311,30 @@ func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (i
 		return installedProbeReport{}, invalid
 	}
 	if report.UninspectableCount == 0 && (report.ProbeUninspectable || report.ParentUninspectable || report.DriverUninspectable) {
+		return installedProbeReport{}, invalid
+	}
+	for _, roles := range []map[string]int{report.UninspectableRoles, report.UninspectableParentRoles} {
+		total := 0
+		for role, count := range roles {
+			switch role {
+			case "ci-listener", "ci-worker", "go-tool", "node-tool", "shell", "system-init", "other", "unavailable", "identity-changed", "not-sampled":
+			default:
+				return installedProbeReport{}, invalid
+			}
+			if count <= 0 || count > 1048576 {
+				return installedProbeReport{}, invalid
+			}
+			total += count
+		}
+		if total != report.UninspectableCount {
+			return installedProbeReport{}, invalid
+		}
+	}
+	if report.UninspectableRoles["not-sampled"] != report.UninspectableParentRoles["not-sampled"] || report.UninspectableRoles["identity-changed"] != report.UninspectableParentRoles["identity-changed"] || report.UninspectableRoles["unavailable"] > report.UninspectableParentRoles["unavailable"] {
+		return installedProbeReport{}, invalid
+	}
+	sampled := report.UninspectableCount - report.UninspectableRoles["not-sampled"]
+	if sampled > 16 || report.UninspectableCount > 65536 && sampled != 0 {
 		return installedProbeReport{}, invalid
 	}
 	stageTotal := 0
@@ -352,6 +465,7 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 	if report.Version == 1 {
 		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d invalid_argument_error_strings=%d native_read_error_strings=%d first_failure_stages=%v native_path_errnos=%v", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount, report.FirstFailureStages, report.NativePathErrnos)
 		test.Logf("uninspectable harness actors: probe=%v parent=%v driver=%v", report.ProbeUninspectable, report.ParentUninspectable, report.DriverUninspectable)
+		test.Logf("uninspectable name-based role hints: processes=%v parents=%v", report.UninspectableRoles, report.UninspectableParentRoles)
 	}
 	if runErr != nil || result.ExitCode != 0 || len(result.Stderr) != 0 || reportErr != nil || !report.Complete {
 		test.Fatalf("native process/path feasibility not established: exit=%d stdout_bytes=%d stderr_bytes=%d report_error=%v; raw output withheld", result.ExitCode, len(result.Stdout), len(result.Stderr), reportErr)
