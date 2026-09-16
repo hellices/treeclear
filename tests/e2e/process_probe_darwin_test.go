@@ -28,44 +28,51 @@ import (
 )
 
 type installedProbeRequest struct {
-	Version         int       `json:"version"`
-	Challenge       string    `json:"challenge"`
-	CallerUID       uint32    `json:"caller_uid"`
-	DriverPID       int32     `json:"driver_pid"`
-	Roots           []string  `json:"roots"`
-	ActiveRoot      string    `json:"active_root"`
-	ActivePID       int32     `json:"active_pid"`
-	ActiveCreatedAt time.Time `json:"active_created_at"`
+	Version             int       `json:"version"`
+	Challenge           string    `json:"challenge"`
+	CallerUID           uint32    `json:"caller_uid"`
+	DriverPID           int32     `json:"driver_pid"`
+	Roots               []string  `json:"roots"`
+	ActiveRoot          string    `json:"active_root"`
+	ActivePID           int32     `json:"active_pid"`
+	ActiveCreatedAt     time.Time `json:"active_created_at"`
+	IncludeProcessNames bool      `json:"include_process_names,omitempty"`
 }
 
 type installedProbeReport struct {
-	Version                  int            `json:"version"`
-	Challenge                string         `json:"challenge"`
-	Platform                 string         `json:"platform"`
-	Architecture             string         `json:"architecture"`
-	EffectiveUID             int            `json:"effective_uid"`
-	RootCount                int            `json:"root_count"`
-	RootsMatched             bool           `json:"roots_matched"`
-	EnumerationComplete      bool           `json:"enumeration_complete"`
-	ErrorCount               int            `json:"error_count"`
-	RetainedErrorCount       int            `json:"retained_error_count"`
-	UninspectableCount       int            `json:"uninspectable_count"`
-	GlobalUnknownCount       int            `json:"global_unknown_count"`
-	ScopedUnknownCount       int            `json:"scoped_unknown_count"`
-	DeniedErrorCount         int            `json:"denied_error_count"`
-	MissingPathCount         int            `json:"missing_path_count"`
-	OtherErrorCount          int            `json:"other_error_count"`
-	InvalidArgumentCount     int            `json:"invalid_argument_count"`
-	NativeReadErrorCount     int            `json:"native_read_error_count"`
-	ActiveMatched            bool           `json:"active_matched"`
-	Complete                 bool           `json:"complete"`
-	FirstFailureStages       map[string]int `json:"first_failure_stages"`
-	NativePathErrnos         map[string]int `json:"native_path_errnos"`
-	ProbeUninspectable       bool           `json:"probe_uninspectable"`
-	ParentUninspectable      bool           `json:"parent_uninspectable"`
-	DriverUninspectable      bool           `json:"driver_uninspectable"`
-	UninspectableRoles       map[string]int `json:"uninspectable_roles"`
-	UninspectableParentRoles map[string]int `json:"uninspectable_parent_roles"`
+	Version                  int                      `json:"version"`
+	Challenge                string                   `json:"challenge"`
+	Platform                 string                   `json:"platform"`
+	Architecture             string                   `json:"architecture"`
+	EffectiveUID             int                      `json:"effective_uid"`
+	RootCount                int                      `json:"root_count"`
+	RootsMatched             bool                     `json:"roots_matched"`
+	EnumerationComplete      bool                     `json:"enumeration_complete"`
+	ErrorCount               int                      `json:"error_count"`
+	RetainedErrorCount       int                      `json:"retained_error_count"`
+	UninspectableCount       int                      `json:"uninspectable_count"`
+	GlobalUnknownCount       int                      `json:"global_unknown_count"`
+	ScopedUnknownCount       int                      `json:"scoped_unknown_count"`
+	DeniedErrorCount         int                      `json:"denied_error_count"`
+	MissingPathCount         int                      `json:"missing_path_count"`
+	OtherErrorCount          int                      `json:"other_error_count"`
+	InvalidArgumentCount     int                      `json:"invalid_argument_count"`
+	NativeReadErrorCount     int                      `json:"native_read_error_count"`
+	ActiveMatched            bool                     `json:"active_matched"`
+	Complete                 bool                     `json:"complete"`
+	FirstFailureStages       map[string]int           `json:"first_failure_stages"`
+	NativePathErrnos         map[string]int           `json:"native_path_errnos"`
+	ProbeUninspectable       bool                     `json:"probe_uninspectable"`
+	ParentUninspectable      bool                     `json:"parent_uninspectable"`
+	DriverUninspectable      bool                     `json:"driver_uninspectable"`
+	UninspectableRoles       map[string]int           `json:"uninspectable_roles"`
+	UninspectableParentRoles map[string]int           `json:"uninspectable_parent_roles"`
+	UninspectableNames       []installedProbeNamePair `json:"uninspectable_names,omitempty"`
+}
+
+type installedProbeNamePair struct {
+	Process string `json:"process"`
+	Parent  string `json:"parent,omitempty"`
 }
 
 func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
@@ -82,7 +89,7 @@ func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
 		return encoded
 	}
 	encoded := encode(valid)
-	if _, err := decodeInstalledProbeReport(encoded, challenge, 2); err != nil {
+	if _, err := decodeInstalledProbeReport(encoded, challenge, 2, false); err != nil {
 		test.Fatalf("valid report rejected: %v", err)
 	}
 	cases := map[string][]byte{
@@ -118,7 +125,7 @@ func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
 	}
 	for name, contents := range cases {
 		test.Run(name, func(test *testing.T) {
-			if _, err := decodeInstalledProbeReport(contents, challenge, 2); err == nil {
+			if _, err := decodeInstalledProbeReport(contents, challenge, 2, false); err == nil {
 				test.Fatal("invalid or incomplete probe report passed")
 			}
 		})
@@ -137,7 +144,7 @@ func TestInstalledProbeValidatesDiagnosticCounts(test *testing.T) {
 		if err != nil {
 			test.Fatal(err)
 		}
-		return decodeInstalledProbeReport(contents, challenge, 2)
+		return decodeInstalledProbeReport(contents, challenge, 2, false)
 	}
 	for _, kind := range []string{"other", "invalid-argument", "native-read"} {
 		report := partial
@@ -218,7 +225,7 @@ func TestInstalledProbeValidatesRoleDiagnostics(test *testing.T) {
 		if err != nil {
 			test.Fatal(err)
 		}
-		return decodeInstalledProbeReport(contents, challenge, 2)
+		return decodeInstalledProbeReport(contents, challenge, 2, false)
 	}
 	for _, role := range []string{"ci-listener", "ci-worker", "go-tool", "node-tool", "shell", "system-init", "other", "unavailable", "identity-changed", "not-sampled"} {
 		report := partial
@@ -288,7 +295,7 @@ func TestInstalledProbeValidatesRoleDiagnostics(test *testing.T) {
 	}
 }
 
-func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (installedProbeReport, error) {
+func decodeInstalledProbeReport(contents []byte, challenge string, roots int, includeNames bool) (installedProbeReport, error) {
 	var report installedProbeReport
 	invalid := errors.New("invalid process probe report; raw output withheld")
 	if len(contents) > 16384 {
@@ -337,6 +344,26 @@ func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (i
 	if sampled > 16 || report.UninspectableCount > 65536 && sampled != 0 {
 		return installedProbeReport{}, invalid
 	}
+	attributedTargets := sampled - report.UninspectableRoles["unavailable"] - report.UninspectableRoles["identity-changed"]
+	attributedParents := sampled - report.UninspectableParentRoles["unavailable"] - report.UninspectableParentRoles["identity-changed"]
+	if !includeNames && len(report.UninspectableNames) != 0 || len(report.UninspectableNames) > 16 || len(report.UninspectableNames) > attributedTargets {
+		return installedProbeReport{}, invalid
+	}
+	namedParents := 0
+	for _, pair := range report.UninspectableNames {
+		if !validInstalledProbeName(pair.Process) {
+			return installedProbeReport{}, invalid
+		}
+		if pair.Parent != "" {
+			if !validInstalledProbeName(pair.Parent) {
+				return installedProbeReport{}, invalid
+			}
+			namedParents++
+		}
+	}
+	if namedParents > attributedParents {
+		return installedProbeReport{}, invalid
+	}
 	stageTotal := 0
 	for stage, count := range report.FirstFailureStages {
 		switch stage {
@@ -377,6 +404,18 @@ func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (i
 	return report, nil
 }
 
+func validInstalledProbeName(name string) bool {
+	if len(name) == 0 || len(name) > 16 {
+		return false
+	}
+	for _, character := range name {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 func TestInstalledProcessProbeRefusesUnprivilegedExecution(test *testing.T) {
 	if os.Getuid() == 0 || os.Geteuid() == 0 {
 		test.Fatal("the installed probe test driver must remain unprivileged")
@@ -403,6 +442,10 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 	}
 	if !hostedProcessProbeAllowed(os.Getenv) || os.Getuid() == 0 || os.Geteuid() != os.Getuid() {
 		test.Fatal("probe requires explicit manual hosted-macOS CI and an ordinary-user test driver")
+	}
+	includeNames := hostedProcessProbeNamesAllowed(os.Getenv)
+	if os.Getenv("TREECLEAR_TEST_PROCESS_PROBE_NAMES") != "" && !includeNames {
+		test.Fatal("name disclosure requires a separate explicit manual hosted-macOS opt-in")
 	}
 	binary, checksum := installProcessProbe(test)
 	home := test.TempDir()
@@ -442,6 +485,7 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 		Version: 1, Challenge: hex.EncodeToString(challenge), CallerUID: uint32(os.Getuid()), DriverPID: int32(os.Getpid()),
 		Roots: []string{repository.Root, active}, ActiveRoot: active,
 		ActivePID: int32(sleeper.Process.Pid), ActiveCreatedAt: created,
+		IncludeProcessNames: includeNames,
 	}
 	encoded, err := json.Marshal(request)
 	if err != nil {
@@ -461,11 +505,16 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
 		test.Fatal("probe wrote ordinary-user state")
 	}
-	report, reportErr := decodeInstalledProbeReport(result.Stdout, request.Challenge, len(request.Roots))
+	report, reportErr := decodeInstalledProbeReport(result.Stdout, request.Challenge, len(request.Roots), includeNames)
 	if report.Version == 1 {
 		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d invalid_argument_error_strings=%d native_read_error_strings=%d first_failure_stages=%v native_path_errnos=%v", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount, report.FirstFailureStages, report.NativePathErrnos)
 		test.Logf("uninspectable harness actors: probe=%v parent=%v driver=%v", report.ProbeUninspectable, report.ParentUninspectable, report.DriverUninspectable)
 		test.Logf("uninspectable name-based role hints: processes=%v parents=%v", report.UninspectableRoles, report.UninspectableParentRoles)
+		if includeNames {
+			for _, pair := range report.UninspectableNames {
+				test.Logf("explicitly approved public kernel display-name hints: process=%q parent=%q", pair.Process, pair.Parent)
+			}
+		}
 	}
 	if runErr != nil || result.ExitCode != 0 || len(result.Stderr) != 0 || reportErr != nil || !report.Complete {
 		test.Fatalf("native process/path feasibility not established: exit=%d stdout_bytes=%d stderr_bytes=%d report_error=%v; raw output withheld", result.ExitCode, len(result.Stdout), len(result.Stderr), reportErr)
@@ -480,6 +529,10 @@ func hostedProcessProbeAllowed(getenv func(string) string) bool {
 		getenv("RUNNER_ENVIRONMENT") == "github-hosted" &&
 		getenv("RUNNER_OS") == "macOS" &&
 		getenv("GITHUB_JOB") == "process-visibility-probe"
+}
+
+func hostedProcessProbeNamesAllowed(getenv func(string) string) bool {
+	return getenv("TREECLEAR_TEST_PROCESS_PROBE_NAMES") == "1" && hostedProcessProbeAllowed(getenv)
 }
 
 func TestAuthorizedProbeRequiresManualHostedCI(test *testing.T) {

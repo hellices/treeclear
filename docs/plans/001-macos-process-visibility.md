@@ -82,8 +82,9 @@ this plan, the permission spec, and `docs/installation.md`.
 
 Consumes: the unchanged `process.NativeSource()` and
 `process.Collector.Collect(context.Context, []domain.Worktree)`.
-Produces: a bounded aggregate-only report from an actual installed test
-executable, never reusable process evidence or a candidate decision.
+Produces: a bounded report, aggregate-only by default, from an actual installed
+test executable, never reusable process evidence or a candidate decision. The
+explicit one-time name-disclosure exception below is test-only.
 
 - [x] Independently review the test-only permission and child-lifetime design.
 - [x] Write failing ordinary Go tests for non-root/caller mismatch, malformed,
@@ -191,7 +192,7 @@ identities in deterministic PID order. Fixed-size native metadata reads bracket
 one parent lookup with two target reads; the target must still match the saved
 PID/start-time and the two target records must agree. Both target and parent
 names become fixed role hints such as CI worker, CI listener, Go tool, shell or
-other; raw names and identifiers never enter reports. Unavailable, changed and
+other; raw names and identifiers do not enter default reports. Unavailable, changed and
 unsampled counts remain explicit. Sampling respects the existing context and
 watchdog and never changes source selection, collector validation or completeness.
 The parent validates both role vocabularies, positive bounded counts and totals
@@ -203,6 +204,46 @@ Name-based hints are
 not executable attestation, ownership, authentication or evidence of irrelevance.
 Review and a new explicit installed run are required before attributing the CI
 failure; no role, including a CI runner or system-init hint, permits exclusion.
+
+### One-time name diagnostic approved on September 16, 2026
+
+Run `35054273576` at `1c17d75` retained one executable ENOENT and one global
+unknown, with both target and parent classified as `other`. It did not identify
+the process or cause. The user explicitly approved one additional disposable
+hosted-macOS run that discloses only the failing target's and parent's kernel
+display names in public CI logs. No local elevation is authorized.
+
+Files: `tests/processprobe/main_darwin.go`, `tests/processprobe/roles_darwin.go`,
+their Darwin tests, `tests/processprobe/names_darwin_test.go`,
+`tests/e2e/process_probe_darwin_test.go`,
+`tests/e2e/process_probe_names_darwin_test.go`, `.github/workflows/ci.yml`, this plan
+and the permission spec.
+
+The private request adds optional `include_process_names`; the report adds
+optional `uninspectable_names` target/parent pairs. The existing sampler
+receives the explicit boolean and returns names alongside its role counts,
+without extra native reads. The receiver separately receives its own consent
+boolean. Names must be nonempty ASCII letters/digits/`._-`, at most 16 bytes;
+unsafe names are withheld, not truncated or exposed through errors. Existing
+PID/start-time checks, 16-entry sampling cap, context and watchdog remain.
+
+- [x] Write failing producer/receiver tests for default non-disclosure,
+  explicit opt-in, unsafe names, identity changes, parent validation,
+  cancellation, sample bounds and malformed or unapproved replies. Run
+  `go test -count=1 ./tests/processprobe ./tests/e2e` without elevation.
+- [x] Implement the optional names using only existing validated metadata.
+  Add default-false `process_visibility_names` workflow input with a public-log
+  warning; bind it to `TREECLEAR_TEST_PROCESS_PROBE_NAMES=1` only when true.
+  Existing hosted/manual interlocks remain mandatory and invalid flags fail
+  before installing or invoking the probe. Partial evidence still fails.
+- [ ] Run all AGENTS.md checks and obtain independent AI review of this delta
+  before committing/pushing and dispatching the experiment.
+- [ ] Dispatch exactly one reviewed hosted experiment with both explicit
+  inputs true; record exact head, installed hash and the permitted diagnostics.
+  Investigate a specific hypothesis from the hints without treating names as
+  executable identity, authorization or exclusion evidence. Further public-name
+  runs require renewed approval. Keep issue #18 and the merge hold open unless
+  a proven defect is corrected and feasibility is actually established.
 
 ### Slice A review and merge completion
 

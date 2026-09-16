@@ -132,18 +132,46 @@ and both target records must agree before attribution. A parent hint also
 requires the requested parent PID and an earlier positive creation time.
 This is a bounded observation, not an atomic ancestry snapshot.
 
-Only fixed labels for CI listener/worker, Go/Node tool, shell, system init,
+By default, only fixed labels for CI listener/worker, Go/Node tool, shell, system init,
 other, unavailable, changed identity and unsampled entries leave the private
 protocol. Both histograms retain all entries as counts; the receiver rejects
 unknown labels, non-positive/oversized values or totals differing from the
 uninspectable count before logging. Both maps must have identical unsampled
 and identity-changed counts; the parent unavailable count must be at least the
 target unavailable count. The shared sampled count cannot exceed 16 and must
-be zero for inputs above 65,536 entries. Raw names, PIDs, parent PIDs, owners,
-paths, arguments and metadata errors remain private. Process names are
+be zero for inputs above 65,536 entries. Raw names remain private except for
+the explicitly approved one-time diagnostic below. PIDs, parent PIDs, owners,
+paths, arguments and metadata errors always remain private. Process names are
 spoofable hints, not image attestation, caller authentication, ownership or
 proof of worktree irrelevance. These labels never filter a process, clear an
 error, substitute an executable path or qualify incomplete collection.
+
+On September 16, 2026, the user explicitly approved one disposable hosted-macOS
+diagnostic run that may disclose the retained failing target's and parent's
+kernel display names in public CI logs. A separate workflow-dispatch boolean,
+`process_visibility_names`, defaults to false and warns about public disclosure.
+Only explicit true supplies `TREECLEAR_TEST_PROCESS_PROBE_NAMES=1`; the existing
+probe opt-in and all hosted/manual interlocks still apply. Other nonempty name
+flag values fail before installation or elevation. The request carries optional
+`include_process_names`, and the parent independently binds reply acceptance to
+its own opt-in. Probe authorization alone never authorizes names.
+
+The optional `uninspectable_names` list contains at most 16 process/parent
+pairs from the existing identity-validated sampling, without extra native
+lookups. Each emitted name is 1-16 bytes of ASCII letters, digits, dot, hyphen
+or underscore. Unsafe or overlong names are withheld, never truncated into a
+different hint. A process name is required for each pair; its parent is optional
+and requires the existing parent-identity checks plus the same name validation.
+Changed, unavailable, canceled and unsampled target identities have no pair.
+The receiver rejects unapproved names, invalid characters/lengths, extra fields,
+and pair totals exceeding the attributable sampled targets or parents, before
+logging any report. Complete/no-unknown reports cannot contain names. Errors
+never echo rejected contents. No PID, full path, owner, argv, environment,
+timestamp, raw error or other process record is added. These spoofable display
+names are advisory hints only, not executable identity, authorization or a
+reason to filter a process. Completeness and all safety checks are unchanged.
+This consent covers one reviewed run, not recurring disclosure or a local
+privileged path; additional name-disclosing runs need renewed user approval.
 
 The operator must trust the exact test executable before authorizing it. The
 private pipe and challenge prevent accidental response mixups; they are not a

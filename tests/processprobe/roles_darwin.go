@@ -19,6 +19,23 @@ type probeProcessRecord struct {
 
 type probeProcessRead func(context.Context, int32) (probeProcessRecord, error)
 
+type probeNamePair struct {
+	Process string `json:"process"`
+	Parent  string `json:"parent,omitempty"`
+}
+
+func validProbeName(name string) bool {
+	if len(name) == 0 || len(name) > 16 {
+		return false
+	}
+	for _, character := range name {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 func readProbeProcessRecord(ctx context.Context, pid int32) (probeProcessRecord, error) {
 	if err := ctx.Err(); err != nil {
 		return probeProcessRecord{}, err
@@ -63,8 +80,9 @@ func probeProcessRole(record probeProcessRecord) string {
 	return "other"
 }
 
-func sampleProbeProcessRoles(ctx context.Context, unknown map[int32]domain.ProcessEvidence, read probeProcessRead) (map[string]int, map[string]int) {
+func sampleProbeProcessRoles(ctx context.Context, unknown map[int32]domain.ProcessEvidence, read probeProcessRead, includeNames bool) (map[string]int, map[string]int, []probeNamePair) {
 	roles, parents := make(map[string]int), make(map[string]int)
+	var names []probeNamePair
 	add := func(role, parent string, count int) {
 		if count > 0 {
 			roles[role] += count
@@ -73,11 +91,11 @@ func sampleProbeProcessRoles(ctx context.Context, unknown map[int32]domain.Proce
 	}
 	if len(unknown) > 65536 {
 		add("not-sampled", "not-sampled", len(unknown))
-		return roles, parents
+		return roles, parents, names
 	}
 	if read == nil {
 		add("not-sampled", "not-sampled", len(unknown))
-		return roles, parents
+		return roles, parents, names
 	}
 	pids := make([]int32, 0, len(unknown))
 	for pid := range unknown {
@@ -126,6 +144,13 @@ func sampleProbeProcessRoles(ctx context.Context, unknown map[int32]domain.Proce
 			parentRole = probeProcessRole(parent)
 		}
 		add(probeProcessRole(before), parentRole, 1)
+		if includeNames && validProbeName(before.Name) {
+			pair := probeNamePair{Process: before.Name}
+			if parentRole != "unavailable" && validProbeName(parent.Name) {
+				pair.Parent = parent.Name
+			}
+			names = append(names, pair)
+		}
 	}
-	return roles, parents
+	return roles, parents, names
 }
