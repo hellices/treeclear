@@ -38,24 +38,27 @@ type installedProbeRequest struct {
 }
 
 type installedProbeReport struct {
-	Version             int    `json:"version"`
-	Challenge           string `json:"challenge"`
-	Platform            string `json:"platform"`
-	Architecture        string `json:"architecture"`
-	EffectiveUID        int    `json:"effective_uid"`
-	RootCount           int    `json:"root_count"`
-	RootsMatched        bool   `json:"roots_matched"`
-	EnumerationComplete bool   `json:"enumeration_complete"`
-	ErrorCount          int    `json:"error_count"`
-	RetainedErrorCount  int    `json:"retained_error_count"`
-	UninspectableCount  int    `json:"uninspectable_count"`
-	GlobalUnknownCount  int    `json:"global_unknown_count"`
-	ScopedUnknownCount  int    `json:"scoped_unknown_count"`
-	DeniedErrorCount    int    `json:"denied_error_count"`
-	MissingPathCount    int    `json:"missing_path_count"`
-	OtherErrorCount     int    `json:"other_error_count"`
-	ActiveMatched       bool   `json:"active_matched"`
-	Complete            bool   `json:"complete"`
+	Version              int            `json:"version"`
+	Challenge            string         `json:"challenge"`
+	Platform             string         `json:"platform"`
+	Architecture         string         `json:"architecture"`
+	EffectiveUID         int            `json:"effective_uid"`
+	RootCount            int            `json:"root_count"`
+	RootsMatched         bool           `json:"roots_matched"`
+	EnumerationComplete  bool           `json:"enumeration_complete"`
+	ErrorCount           int            `json:"error_count"`
+	RetainedErrorCount   int            `json:"retained_error_count"`
+	UninspectableCount   int            `json:"uninspectable_count"`
+	GlobalUnknownCount   int            `json:"global_unknown_count"`
+	ScopedUnknownCount   int            `json:"scoped_unknown_count"`
+	DeniedErrorCount     int            `json:"denied_error_count"`
+	MissingPathCount     int            `json:"missing_path_count"`
+	OtherErrorCount      int            `json:"other_error_count"`
+	InvalidArgumentCount int            `json:"invalid_argument_count"`
+	NativeReadErrorCount int            `json:"native_read_error_count"`
+	ActiveMatched        bool           `json:"active_matched"`
+	Complete             bool           `json:"complete"`
+	FirstFailureStages   map[string]int `json:"first_failure_stages"`
 }
 
 func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
@@ -110,6 +113,55 @@ func TestInstalledProbeRejectsInvalidReports(test *testing.T) {
 	}
 }
 
+func TestInstalledProbeValidatesDiagnosticCounts(test *testing.T) {
+	challenge := strings.Repeat("12", 32)
+	partial := installedProbeReport{
+		Version: 1, Challenge: challenge, Platform: "darwin", Architecture: runtime.GOARCH,
+		RootCount: 2, RootsMatched: true, EnumerationComplete: true, ActiveMatched: true,
+		ErrorCount: 1, OtherErrorCount: 1, FirstFailureStages: map[string]int{"cwd": 1},
+	}
+	decode := func(report installedProbeReport) (installedProbeReport, error) {
+		contents, err := json.Marshal(report)
+		if err != nil {
+			test.Fatal(err)
+		}
+		return decodeInstalledProbeReport(contents, challenge, 2)
+	}
+	for _, kind := range []string{"other", "invalid-argument", "native-read"} {
+		report := partial
+		if kind == "invalid-argument" {
+			report.OtherErrorCount, report.InvalidArgumentCount = 0, 1
+		}
+		if kind == "native-read" {
+			report.OtherErrorCount, report.NativeReadErrorCount = 0, 1
+		}
+		actual, err := decode(report)
+		if err == nil || actual.Version != 1 || actual.Complete || actual.FirstFailureStages["cwd"] != 1 {
+			test.Errorf("valid %s diagnostics were lost or made incomplete evidence pass", kind)
+		}
+	}
+	for name, mutate := range map[string]func(*installedProbeReport){
+		"unknown-stage":   func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"private-host-data": 1} },
+		"negative-stage":  func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": -1} },
+		"oversized-stage": func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 1048577} },
+		"zero-stage":      func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 0, "other": 1} },
+		"wrong-total":     func(report *installedProbeReport) { report.FirstFailureStages = map[string]int{"cwd": 1, "other": 1} },
+		"missing-stage":   func(report *installedProbeReport) { report.FirstFailureStages = nil },
+		"negative-kind":   func(report *installedProbeReport) { report.InvalidArgumentCount = -1 },
+		"oversized-kind":  func(report *installedProbeReport) { report.NativeReadErrorCount = 1048577 },
+		"hidden-kind":     func(report *installedProbeReport) { report.NativeReadErrorCount = 1 },
+	} {
+		test.Run(name, func(test *testing.T) {
+			report := partial
+			mutate(&report)
+			actual, err := decode(report)
+			if err == nil || actual.Version != 0 || strings.Contains(err.Error(), "private-host-data") {
+				test.Fatal("invalid diagnostics were retained or exposed")
+			}
+		})
+	}
+}
+
 func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (installedProbeReport, error) {
 	var report installedProbeReport
 	invalid := errors.New("invalid process probe report; raw output withheld")
@@ -124,12 +176,27 @@ func decodeInstalledProbeReport(contents []byte, challenge string, roots int) (i
 	if err != nil || !bytes.Equal(contents, canonical) || report.Version != 1 || report.Challenge != challenge || report.EffectiveUID != 0 || report.Platform != "darwin" || report.Architecture != runtime.GOARCH {
 		return installedProbeReport{}, invalid
 	}
-	for _, count := range []int{report.RootCount, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount} {
+	for _, count := range []int{report.RootCount, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount} {
 		if count < 0 || count > 1048576 {
 			return installedProbeReport{}, invalid
 		}
 	}
-	if report.ErrorCount != report.DeniedErrorCount+report.MissingPathCount+report.OtherErrorCount {
+	if report.ErrorCount != report.DeniedErrorCount+report.MissingPathCount+report.OtherErrorCount+report.InvalidArgumentCount+report.NativeReadErrorCount {
+		return installedProbeReport{}, invalid
+	}
+	stageTotal := 0
+	for stage, count := range report.FirstFailureStages {
+		switch stage {
+		case "enumeration", "worktree-path", "creation-time", "executable", "cwd", "command-line", "owner", "name", "inspection", "containment", "other":
+		default:
+			return installedProbeReport{}, invalid
+		}
+		if count <= 0 || count > 1048576 {
+			return installedProbeReport{}, invalid
+		}
+		stageTotal += count
+	}
+	if stageTotal != report.ErrorCount {
 		return installedProbeReport{}, invalid
 	}
 	complete := report.RootsMatched && report.RootCount == roots && report.EnumerationComplete && report.ErrorCount == 0 && report.RetainedErrorCount == 0 && report.UninspectableCount == 0 && report.GlobalUnknownCount == 0 && report.ScopedUnknownCount == 0 && report.ActiveMatched
@@ -228,7 +295,7 @@ func TestAuthorizedProcessProbe(test *testing.T) {
 	}
 	report, reportErr := decodeInstalledProbeReport(result.Stdout, request.Challenge, len(request.Roots))
 	if report.Version == 1 {
-		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount)
+		test.Logf("native process/path complete=%v enumeration=%v active_identity=%v errors=%d retained_errors=%d uninspectable=%d global_unknown=%d scoped_unknown=%d denied_error_strings=%d missing_path_error_strings=%d other_error_strings=%d invalid_argument_error_strings=%d native_read_error_strings=%d first_failure_stages=%v", report.Complete, report.EnumerationComplete, report.ActiveMatched, report.ErrorCount, report.RetainedErrorCount, report.UninspectableCount, report.GlobalUnknownCount, report.ScopedUnknownCount, report.DeniedErrorCount, report.MissingPathCount, report.OtherErrorCount, report.InvalidArgumentCount, report.NativeReadErrorCount, report.FirstFailureStages)
 	}
 	if runErr != nil || result.ExitCode != 0 || len(result.Stderr) != 0 || reportErr != nil || !report.Complete {
 		test.Fatalf("native process/path feasibility not established: exit=%d stdout_bytes=%d stderr_bytes=%d report_error=%v; raw output withheld", result.ExitCode, len(result.Stdout), len(result.Stderr), reportErr)

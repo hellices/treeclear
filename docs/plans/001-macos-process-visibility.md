@@ -109,6 +109,25 @@ executable, never reusable process evidence or a candidate decision.
   elevated probe. Record exact commit, binary hash, runner and only sanitized
   aggregates. Keep #18 open regardless of this feasibility-only result.
 
+### PR #22 failed feasibility investigation
+
+The explicit run `35036670612` at `8719930` failed its installed administrator
+probe with complete enumeration and a matched owned child, but one retained
+error and one global unknown. The root-side expiry and ordinary native
+macOS/Windows checks passed. This is a failed feasibility qualification, not a
+build failure or evidence that installation authorization solves issue #18.
+
+- [x] Preserve the failure and add test-first, fixed-label aggregate diagnostics
+  for the first failed field and native error wording. Validate reply labels,
+  bounds and totals before logging; never expose raw records or errors.
+- [ ] Independently review the diagnostic-only change and explicitly rerun the
+  installed probe on the disposable hosted macOS job to identify the failure.
+- [ ] If a correctable source or collector defect is established, reproduce it
+  in a failing isolated test and fix only that defect. Do not filter the process,
+  relax path checks, accept incomplete output, or alter host authorization.
+- [ ] Rerun all AGENTS.md checks and native macOS/Windows CI, publish only
+  sanitized results, and retain the merge hold unless feasibility is established.
+
 ### Slice A review and merge completion
 
 PR #21 merged as `26c03e4af934eb8e5561d2c15c5b1b209534e841`, with a tree

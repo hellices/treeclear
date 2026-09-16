@@ -98,6 +98,16 @@ timeouts and partial collection must fail the opt-in test, not skip or fall
 back to ordinary collection. Fixture digests and ordinary-user ownership must
 remain unchanged.
 
+Diagnostic reports count the first collector/source field prefix for each
+returned error using a fixed vocabulary, plus fixed permission, missing-path,
+invalid-argument, native-read and other error-wording categories. These are
+advisory string classifications, not typed OS errors or proof of the cause;
+later failures in a combined message are not enumerated. Both category totals
+must equal the returned error count, and the parent rejects unknown labels,
+invalid counts and malformed replies before logging. No diagnostic changes
+completeness, the set of processes inspected, or any path validation. Raw
+messages and arbitrary labels remain excluded from reports and CI artifacts.
+
 The operator must trust the exact test executable before authorizing it. The
 private pipe and challenge prevent accidental response mixups; they are not a
 sandbox or protection against malicious code already controlling the caller's

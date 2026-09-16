@@ -245,6 +245,58 @@ func TestProbeCountsErrorsWithoutExposingDetails(test *testing.T) {
 	}
 }
 
+func TestProbeReportsOnlyFixedFailureStages(test *testing.T) {
+	request := validProbeRequest()
+	marker := "private-host-data-must-not-escape"
+	for _, fixture := range []struct {
+		message         string
+		stage           string
+		invalidArgument int
+		nativeRead      int
+	}{
+		{"enumerate processes: " + marker, "enumeration", 0, 0},
+		{"worktree path \"/" + marker + "\": unavailable", "worktree-path", 0, 0},
+		{"process 123: creation time is unavailable or invalid; " + marker, "creation-time", 0, 0},
+		{"process 123: executable: unknown error: proc_pidpath returned 0; " + marker, "executable", 0, 1},
+		{"process 123: executable is not a regular file; " + marker, "executable", 0, 0},
+		{"process 123: cwd: unknown error: proc_pidinfo returned 0; " + marker, "cwd", 0, 1},
+		{"process 123: cwd is not a valid absolute path; " + marker, "cwd", 0, 0},
+		{"process 123: command line: invalid argument; " + marker, "command-line", 1, 0},
+		{"process 123: owner contains a NUL byte; " + marker, "owner", 0, 0},
+		{"process 123: current owner: " + marker, "owner", 0, 0},
+		{"process 123: name is unavailable or malformed; " + marker, "name", 0, 0},
+		{"process 123: inspection: " + marker, "inspection", 0, 0},
+		{"process 123: containment: " + marker, "containment", 0, 0},
+		{"process 123: cwd: " + marker + "; command line: unavailable", "cwd", 0, 0},
+		{"process " + marker + ": cwd: unavailable", "other", 0, 0},
+		{marker, "other", 0, 0},
+	} {
+		test.Run(fixture.stage+"/"+fixture.message[:min(20, len(fixture.message))], func(test *testing.T) {
+			var output bytes.Buffer
+			collect := func(context.Context, []domain.Worktree) (process.Collection, []error) {
+				return completeProbeCollection(request), []error{errors.New(fixture.message)}
+			}
+			if status := runProbe(test.Context(), bytes.NewReader(encodeProbeRequest(test, request)), &output, 0, "501", collect); status != 1 {
+				test.Fatalf("diagnosed error exited %d, want failure", status)
+			}
+			var report struct {
+				FirstFailureStages   map[string]int `json:"first_failure_stages"`
+				InvalidArgumentCount int            `json:"invalid_argument_count"`
+				NativeReadErrorCount int            `json:"native_read_error_count"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+				test.Fatal(err)
+			}
+			if len(report.FirstFailureStages) != 1 || report.FirstFailureStages[fixture.stage] != 1 || report.InvalidArgumentCount != fixture.invalidArgument || report.NativeReadErrorCount != fixture.nativeRead {
+				test.Fatal("missing or incorrect fixed diagnostic category")
+			}
+			if bytes.Contains(output.Bytes(), []byte(marker)) || bytes.Contains(output.Bytes(), []byte("process 123")) {
+				test.Fatal("diagnostics exposed raw process/error data")
+			}
+		})
+	}
+}
+
 func TestProbeRetainsFullCollectorPathValidation(test *testing.T) {
 	root, err := filepath.EvalSymlinks(test.TempDir())
 	if err != nil {

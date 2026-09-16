@@ -29,24 +29,27 @@ type probeRequest struct {
 }
 
 type probeReport struct {
-	Version             int    `json:"version"`
-	Challenge           string `json:"challenge"`
-	Platform            string `json:"platform"`
-	Architecture        string `json:"architecture"`
-	EffectiveUID        int    `json:"effective_uid"`
-	RootCount           int    `json:"root_count"`
-	RootsMatched        bool   `json:"roots_matched"`
-	EnumerationComplete bool   `json:"enumeration_complete"`
-	ErrorCount          int    `json:"error_count"`
-	RetainedErrorCount  int    `json:"retained_error_count"`
-	UninspectableCount  int    `json:"uninspectable_count"`
-	GlobalUnknownCount  int    `json:"global_unknown_count"`
-	ScopedUnknownCount  int    `json:"scoped_unknown_count"`
-	DeniedErrorCount    int    `json:"denied_error_count"`
-	MissingPathCount    int    `json:"missing_path_count"`
-	OtherErrorCount     int    `json:"other_error_count"`
-	ActiveMatched       bool   `json:"active_matched"`
-	Complete            bool   `json:"complete"`
+	Version              int            `json:"version"`
+	Challenge            string         `json:"challenge"`
+	Platform             string         `json:"platform"`
+	Architecture         string         `json:"architecture"`
+	EffectiveUID         int            `json:"effective_uid"`
+	RootCount            int            `json:"root_count"`
+	RootsMatched         bool           `json:"roots_matched"`
+	EnumerationComplete  bool           `json:"enumeration_complete"`
+	ErrorCount           int            `json:"error_count"`
+	RetainedErrorCount   int            `json:"retained_error_count"`
+	UninspectableCount   int            `json:"uninspectable_count"`
+	GlobalUnknownCount   int            `json:"global_unknown_count"`
+	ScopedUnknownCount   int            `json:"scoped_unknown_count"`
+	DeniedErrorCount     int            `json:"denied_error_count"`
+	MissingPathCount     int            `json:"missing_path_count"`
+	OtherErrorCount      int            `json:"other_error_count"`
+	InvalidArgumentCount int            `json:"invalid_argument_count"`
+	NativeReadErrorCount int            `json:"native_read_error_count"`
+	ActiveMatched        bool           `json:"active_matched"`
+	Complete             bool           `json:"complete"`
+	FirstFailureStages   map[string]int `json:"first_failure_stages"`
 }
 
 type probeCollect func(context.Context, []domain.Worktree) (process.Collection, []error)
@@ -136,6 +139,7 @@ func summarizeCollection(request probeRequest, effectiveUID int, collection proc
 		EnumerationComplete: collection.Complete, ErrorCount: len(failures),
 		RetainedErrorCount: len(collection.Errors), UninspectableCount: len(collection.Uninspectable),
 		GlobalUnknownCount: len(collection.GlobalUnknown),
+		FirstFailureStages: make(map[string]int),
 	}
 	for _, root := range request.Roots {
 		if _, exists := collection.ByWorktree[root]; !exists {
@@ -161,15 +165,50 @@ func summarizeCollection(request probeRequest, effectiveUID int, collection proc
 		if failure != nil {
 			message = strings.ToLower(failure.Error())
 		}
+		report.FirstFailureStages[firstFailureStage(message)]++
 		switch {
 		case strings.Contains(message, "permission denied"), strings.Contains(message, "operation not permitted"):
 			report.DeniedErrorCount++
 		case strings.Contains(message, "no such file"):
 			report.MissingPathCount++
+		case strings.Contains(message, "invalid argument"):
+			report.InvalidArgumentCount++
+		case strings.Contains(message, "unknown error: proc_pidpath returned"), strings.Contains(message, "unknown error: proc_pidinfo returned"):
+			report.NativeReadErrorCount++
 		default:
 			report.OtherErrorCount++
 		}
 	}
 	report.Complete = report.RootsMatched && report.EnumerationComplete && report.ErrorCount == 0 && report.RetainedErrorCount == 0 && report.UninspectableCount == 0 && report.GlobalUnknownCount == 0 && report.ScopedUnknownCount == 0 && report.ActiveMatched
 	return report
+}
+
+func firstFailureStage(message string) string {
+	if strings.HasPrefix(message, "enumerate processes: ") {
+		return "enumeration"
+	}
+	if strings.HasPrefix(message, "worktree path ") {
+		return "worktree-path"
+	}
+	prefix, remaining, found := strings.Cut(message, ": ")
+	if !found || !strings.HasPrefix(prefix, "process ") {
+		return "other"
+	}
+	pidText := strings.TrimPrefix(prefix, "process ")
+	pid, err := strconv.ParseInt(pidText, 10, 32)
+	if err != nil || pid <= 0 || strconv.FormatInt(pid, 10) != pidText {
+		return "other"
+	}
+	for _, field := range []struct{ prefix, stage string }{
+		{"creation time", "creation-time"}, {"executable", "executable"},
+		{"cwd", "cwd"}, {"command line", "command-line"},
+		{"owner", "owner"}, {"current owner", "owner"}, {"name", "name"},
+		{"inspection", "inspection"}, {"process inspection", "inspection"},
+		{"containment", "containment"},
+	} {
+		if strings.HasPrefix(remaining, field.prefix+": ") || strings.HasPrefix(remaining, field.prefix+" ") {
+			return field.stage
+		}
+	}
+	return "other"
 }
