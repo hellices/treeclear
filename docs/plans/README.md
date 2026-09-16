@@ -51,6 +51,15 @@ depend on or merge PR #14, complete Plan 001, or waive any open review. Signed
 archives, native architecture qualification, SBOMs, attestations, and release
 publication retain their original dependencies and acceptance requirements.
 
+## Early native macOS CI coverage
+
+The independent [native macOS architecture CI slice](004-operations-and-release.md#early-slice-native-macos-architecture-coverage)
+is also brought forward from Plan 004 Task 7. It adds actual Intel macOS
+execution alongside Apple Silicon and the existing Windows compatibility
+job, without replacing native tests with cross-builds. It does not complete
+the dependent product stages, clear process visibility #18 or source review
+#23, or supply the signing/notarization prerequisites tracked in #25.
+
 ## Cross-plan CLI ownership
 
 | Command or flag | Owning plan |

@@ -21,7 +21,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
+        include:
+          - os: macos-15
+            goos: darwin
+            goarch: arm64
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - os: windows-2025
+            goos: windows
+            goarch: amd64
     env:
       GOTOOLCHAIN: local
       GOWORK: 'off'
@@ -40,6 +49,16 @@ jobs:
           go-version: '1.26.5'
           check-latest: false
           cache: false
+      - name: Verify native target
+        run: |
+          $goEnvironment = go env -json GOHOSTOS GOHOSTARCH GOOS GOARCH
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $native = $goEnvironment | ConvertFrom-Json
+          if ($native.GOHOSTOS -ne '${{ matrix.goos }}' -or $native.GOOS -ne '${{ matrix.goos }}' -or
+              $native.GOHOSTARCH -ne '${{ matrix.goarch }}' -or $native.GOARCH -ne '${{ matrix.goarch }}') {
+            throw "Expected native ${{ matrix.goos }}/${{ matrix.goarch }} verification"
+          }
+          Write-Output "Verified native $($native.GOHOSTOS)/$($native.GOHOSTARCH) target"
       - name: Check formatting
         run: |
           $unformatted = gofmt -l .

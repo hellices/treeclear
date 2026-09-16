@@ -12,15 +12,24 @@ gofmt -l .
 
 `gofmt -l .` must print nothing; fix formatting with `gofmt -w <files>`.
 `make verify` runs the same checks. Windows contributors can use the Go
-commands directly in PowerShell. CI runs both native macOS and Windows tests.
+commands directly in PowerShell. CI runs native macOS arm64 (`macos-15`),
+macOS amd64 (`macos-15-intel`) and Windows amd64 (`windows-2025`) tests. The
+job checks that the Go host and target match the declared native platform
+before testing; a cross-build is not accepted as native execution.
 For a quick iteration, use `go test -count=1 ./internal/<package>`.
 
 The first supported release targets macOS. Windows support is deferred to
 [follow-up #15](https://github.com/hellices/treeclear/issues/15); the existing
 Windows implementation and native CI remain compatibility coverage, not a
-production-support claim. Keep both current CI jobs and their required checks.
+production-support claim. Keep the existing `verify (macos-15)` and
+`verify (windows-2025)` check names, plus `verify (macos-15-intel)`.
 Deferral does not resolve outstanding reviews or waive shared/macOS safety
 findings. Existing dual-platform execution records remain historical evidence.
+
+`go test -count=1 ./internal/ci` checks the literal workflow matrix, native
+host/target assertions, verification commands and full-SHA action pins. It
+adds no custom acceptance runner and does not substitute for actual native
+CI, installed-binary acceptance or signed release verification.
 
 `make build` writes the CLI into `bin/`; `make build VERSION=v0.0.0-test`
 sets the version string. Without Make, use `go build -o bin/ ./cmd/treeclear`.
