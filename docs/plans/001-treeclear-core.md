@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8J stored bundle revalidation
+- Status: In progress — Task 8J delivered; remaining lifecycle review-gated
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -3616,7 +3616,7 @@ changing filesystem objects; existing Windows behavior and CI are preserved.
   publish/read round trips and unsupported-platform refusal.
 - [x] Run all AGENTS.md commands; obtain independent AI review for the full
   slice, fix blocking findings with RED/GREEN evidence and re-review.
-- [ ] Open a scoped PR, pass native macOS/Windows CI, and verify the
+- [x] Open a scoped PR, pass native macOS/Windows CI, and verify the
   authorized merge's actual-main CI before advancing.
 
 #### Task 8J implementation evidence
@@ -3646,6 +3646,22 @@ slice, its plan and helper integration returned spec-compliance and
 code-quality PASS with no actionable findings. The reviewer independently
 checked focused tests and candidate hashes; this is not human approval.
 Candidate-bound native macOS/Windows PR CI and actual-main CI remain pending.
+
+#### Task 8J completion
+
+PR #26's final head `422497838507c473e2ed76dafad6200c61ea681f` passed
+independent whole-slice AI review and a final committed-blob/plan-delta check
+with no actionable findings. Candidate CI `35124130786` passed native macOS
+and Windows. The authorized head-guarded merge is
+`497f9afe5970aeade5ff84c2729294ca60b605c1`; its actual-main push CI
+`35124983650` passed both native jobs, including their normal/race tests,
+vet, build, formatting and source-cleanliness checks. Closing evidence is
+recorded in PR #26 comment `5701374421`.
+
+The earlier pending-CI text records the implementation checkpoint, not the
+delivery state after this completion entry. Task 8J is complete only as an
+independent stored-bundle reader. Source-dependent manager/create/restore
+and apply remain gated by #23; #18's process/permission boundary is unchanged.
 
 ### Remaining Task 8 lifecycle
 

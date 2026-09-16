@@ -1,6 +1,6 @@
 # Treeclear Operations and Release Implementation Plan
 
-- Status: Planned — source-install preview implemented as a separate early slice
+- Status: In progress — independent native macOS architecture CI slice
 - Sequence: 004 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [003 Treeclear Adapter Lifecycle](003-adapter-lifecycle.md)
@@ -776,6 +776,106 @@ and Windows compatibility coverage have different support claims; Windows-only
 product acceptance is deferred to #15, not reported as passing by this task.
 This scope change does not change repository protections or disable a check.
 
+### Early slice: native macOS architecture coverage
+
+This independent prerequisite is brought forward under the user's direction
+to continue toward macOS production. Task 8 requires native execution for both
+advertised macOS architectures; the existing baseline only has an Apple
+Silicon macOS job. Add a hosted Intel job rather than treating a cross-build
+as native evidence or provisioning an unnecessary self-hosted runner.
+The official [runner-image inventory](https://github.com/actions/runner-images#available-images)
+lists `macos-15` as arm64 and `macos-15-intel` as x64.
+
+**Scope:** Modify `.github/workflows/ci.yml`, `docs/development.md` and these
+plan records; add ordinary Go tests in `internal/ci/workflow_test.go`.
+No product implementation, process-feasibility workflow, dependency,
+permissions, credentials, repository protection or release is changed.
+Keep existing `verify (macos-15)` and `verify (windows-2025)` check names;
+add `verify (macos-15-intel)` to the same ordinary verification job.
+
+Use this explicit native matrix, without cross-target `GOOS`/`GOARCH` overrides:
+
+```yaml
+include:
+  - os: macos-15
+    goos: darwin
+    goarch: arm64
+  - os: macos-15-intel
+    goos: darwin
+    goarch: amd64
+  - os: windows-2025
+    goos: windows
+    goarch: amd64
+```
+
+After setting up Go, inspect `go env -json GOHOSTOS GOHOSTARCH GOOS GOARCH`
+with the existing PowerShell shell. Check the Go exit status, parse the JSON,
+and throw unless both host and target OS/architecture equal the matrix
+values. Report only the verified platform tuple. This is an ordinary inline
+workflow step, not a new stage/acceptance framework. Preserve the pinned
+actions, Go 1.26.5, permissions, triggers, timeout, uncached normal/race tests,
+vet, build, formatting and source-cleanliness checks.
+
+- [x] Add Go workflow contract tests for the exact three mappings, stable
+  job names, native host/target comparisons, toolchain and full-SHA actions.
+- [x] Run `go test -count=1 ./internal/ci`; observe assertion RED against
+  the original two-platform workflow and missing native-target check.
+- [x] Add the native matrix/check and document the support boundary;
+  rerun the focused test to GREEN. Execute the actual rendered PowerShell
+  step locally for a native match and mismatched/cross-target refusal.
+- [x] Run all AGENTS.md commands and independent AI spec/quality review;
+  fix blocking findings and confirm the final reviewed head.
+- [ ] Open a scoped PR, pass all three actual native jobs, merge under the
+  user's authorization, and verify that exact actual-main commit's CI.
+
+The rest of Task 7, including the completed product's documentation checks,
+keeps its original dependencies. Future edits must retain this native matrix
+and its check names. Passing compatibility tests does not make partial
+process collection complete, clear #18 or source review #23, supply signing
+and notarization prerequisites in #25, or qualify a production release.
+Windows product work stays deferred to #15.
+
+#### Native-architecture implementation evidence
+
+The compiling Go contract test failed against the unchanged two-platform
+workflow: the explicit native mappings and host/target comparisons were
+missing. After the workflow change, all three contract tests pass
+(`go test -count=1 -v ./internal/ci`, 0.326s on Go 1.26.5 darwin/arm64).
+The native step was extracted from the actual YAML and rendered with literal
+matrix values, then executed using PowerShell. A native darwin/arm64 match
+passes; a wrong expected OS, wrong expected architecture, child `GOOS=windows`
+and child `GOARCH=amd64` each refuse with exit 1 and the intended diagnostic.
+Only those child environments change. No cross-target binary is executed.
+
+These local checks do not execute an Intel macOS or Windows runner. Full local
+validation, independent review, candidate-bound native CI and actual-main CI
+remain pending at this implementation checkpoint.
+
+The first full local matrix passed with unchanged source hashes. Independent
+AI review found no blocking issue, but identified a Minor gap in the test's
+action extraction: valid `- uses:` syntax could hide an unpinned action when
+another named step was pinned. A table-driven regression reproduced that
+omission and rejection of a valid anonymous pinned step before the regex
+changed. The same pinning check now handles named and anonymous steps; all
+four contract tests and five new subcases pass (0.413s). The actual workflow
+and native guard are unchanged by this correction. Post-fix full validation
+and independent re-review are required before the final candidate is delivered.
+
+Post-fix uncached normal/race tests pass (CI contracts 0.250s/1.454s,
+snapshot 57.975s/90.078s, e2e 22.002s/21.449s), along with vet, build, empty
+formatting and whitespace checks. Complete source hashes remain unchanged
+across that matrix. Independent AI round 2 confirms M1 resolved, with
+spec-compliance and code-quality PASS and no outstanding actionable findings.
+The reviewer also runs the focused contract tests and verifies the full source
+hash inventory. This is not human approval; final committed-head confirmation
+and candidate/actual-main native CI remain separate delivery requirements.
+
+### Remaining completed-product CI work
+
+The baseline workflow and early architecture slice already provide ordinary
+native checks. Extend that implementation for the completed product's
+documentation/e2e contracts rather than recreating or weakening it.
+
 **Files:**
 - Create: `.github/workflows/ci.yml`
 - Create: `scripts/verify-docs.sh`
@@ -790,10 +890,10 @@ This scope change does not change repository protections or disable a check.
 Create `internal/ci/workflow_test.go` that parses `.github/workflows/ci.yml`
 as text and asserts:
 
-- `macos-15` and `windows-2025`;
+- the three native runner/OS/architecture mappings in the early slice;
 - Go `1.26.5`;
-- `go test ./...`;
-- `go test -race ./...`;
+- `go test -count=1 ./...`;
+- `go test -race -count=1 ./...`;
 - `go test ./tests/e2e -v`;
 - every `uses:` value ends in a 40-character commit SHA.
 
@@ -805,7 +905,8 @@ Run:
 go test ./internal/ci
 ```
 
-Expected: FAIL because CI does not exist.
+Expected: FAIL only for the still-missing completed-product contracts;
+the existing baseline/native-architecture contracts stay green.
 
 - [ ] **Step 3: Implement the CI workflow**
 
@@ -822,7 +923,16 @@ Matrix:
 strategy:
   fail-fast: false
   matrix:
-    os: [macos-15, windows-2025]
+    include:
+      - os: macos-15
+        goos: darwin
+        goarch: arm64
+      - os: macos-15-intel
+        goos: darwin
+        goarch: amd64
+      - os: windows-2025
+        goos: windows
+        goarch: amd64
 ```
 
 Steps:
@@ -831,8 +941,8 @@ Steps:
 go version
 git version
 go mod download
-go test ./...
-go test -race ./...
+go test -count=1 ./...
+go test -race -count=1 ./...
 go test ./tests/e2e -v
 go build -trimpath ./cmd/treeclear
 ```
