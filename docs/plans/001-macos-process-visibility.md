@@ -236,14 +236,46 @@ PID/start-time checks, 16-entry sampling cap, context and watchdog remain.
   warning; bind it to `TREECLEAR_TEST_PROCESS_PROBE_NAMES=1` only when true.
   Existing hosted/manual interlocks remain mandatory and invalid flags fail
   before installing or invoking the probe. Partial evidence still fails.
-- [ ] Run all AGENTS.md checks and obtain independent AI review of this delta
+- [x] Run all AGENTS.md checks and obtain independent AI review of this delta
   before committing/pushing and dispatching the experiment.
-- [ ] Dispatch exactly one reviewed hosted experiment with both explicit
+- [x] Dispatch exactly one reviewed hosted experiment with both explicit
   inputs true; record exact head, installed hash and the permitted diagnostics.
   Investigate a specific hypothesis from the hints without treating names as
   executable identity, authorization or exclusion evidence. Further public-name
   runs require renewed approval. Keep issue #18 and the merge hold open unless
   a proven defect is corrected and feasibility is actually established.
+
+The one-time consent was consumed by run `35059409672`, job `104676349306`,
+at reviewed head `962f79d6dd82c18c80066ccdb63075b917ee1f47` on September 16,
+2026. The macOS 15.7.9 (24G830) arm64 runner used Go 1.26.5 and installed
+probe SHA-256
+`f8c597dc6aca2d07c0db142b599c6c60a4a16b9c87096f0d59a3406d799bc363`.
+Feasibility still failed: one executable ENOENT and one enumeration-first
+failure, two returned/retained errors, one uninspectable entry and two global
+unknowns. Enumeration was incomplete; the owned active identity still matched.
+All three harness-actor flags were false and both role histograms were `other:1`.
+One approved process/parent display-name pair appears only in the opt-in job
+log, not this execution record. Names do not attest the executable or establish
+why its native path lookup failed. A possible hosted provisioning/diagnostic
+helper is an investigation hypothesis, not a proven runner-update/unlink defect.
+
+Root-side expiry passed in 30.16 seconds. Fixture preservation, ordinary-user
+ownership, installed bytes and no-state-write checks passed before the failing
+completeness assertion. Native macOS job `104676349334` and Windows job
+`104676349121` passed. All required local checks passed on macOS 26.6.2
+(25G83) arm64; the actual installed-preview protective regression and ten
+race-enabled owned live/unlinked-executable regressions also passed. The latter
+still reproduces an error class, not this runner's cause.
+
+Independent AI static review reported no material P0-P2 findings; it is not
+human approval. The committed diagnostic patch matches reviewed SHA-256
+`d32e7332dd6b874e2317c81e18154b7dcf57eca215891e11525d5367e9a01841`.
+Issue #18 remains open and PR #22 remains unmerged. The original feasibility
+failure is unresolved; no process filtering, path-check bypass, runner change,
+retry-until-success or incomplete-result qualification was introduced. Further
+name-disclosing runs require renewed approval. Provider-side evidence of the
+suspected helper's identity and executable lifetime is the next investigation
+need, not permission to broaden diagnostics or escalate locally.
 
 ### Slice A review and merge completion
 

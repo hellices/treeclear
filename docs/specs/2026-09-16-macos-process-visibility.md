@@ -89,7 +89,7 @@ itself on expiry because an unprivileged parent cannot reliably kill it.
 
 The probe only inspects process metadata and performs the collector's path
 checks. It does not import Git, CLI, configuration, state, adapters or mutation
-code, run children, read file contents, or write files. It returns only the
+code, run children, read file contents, or write files. By default it returns the
 challenge, protocol identity, effective UID, error/unknown counts, fixed error
 categories, and an exact active-child identity-match boolean. Raw process
 records, command lines, paths, owners and error text never enter CI output or
