@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8I private bundle publication
+- Status: In progress — Task 8J stored bundle revalidation
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -36,9 +36,11 @@ into bounded, revalidated source capture.
 PR #14 was merged at the user's explicit direction on September 16, 2026;
 its two original technical-review concerns remain unresolved and are retained
 in [follow-up #23](https://github.com/hellices/treeclear/issues/23). That merge
-decision is not an independent clearance of those concerns. Task 8I adds an
-independent output-storage primitive; snapshot creation orchestration and
-restore, and Tasks 9–11 cleanup and recovery remain pending.
+decision is not an independent clearance of those concerns. Task 8I's
+independent output-storage primitive is merged in PR #24. Task 8J reads and
+revalidates those stored bundles without source capture or Git mutation;
+snapshot creation orchestration and restore, and Tasks 9–11 cleanup and
+recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
@@ -3485,8 +3487,8 @@ runtime qualification remain in #15. No CLI mutation surface is added.
   publication, identity changes, read-back, I/O failures and safe cleanup.
 - [x] Implement the bounded snapshot wrapper and macOS storage primitive;
   prove unsupported platforms do not write.
-- [ ] Run all AGENTS.md commands, independent AI review and focused fixes.
-- [ ] Open the scoped PR, pass native macOS/Windows CI, and verify the
+- [x] Run all AGENTS.md commands, independent AI review and focused fixes.
+- [x] Open the scoped PR, pass native macOS/Windows CI, and verify the
   authorized merge's actual-main CI before advancing.
 
 #### Task 8I execution and first review
@@ -3517,6 +3519,133 @@ the cleanup-fault fixture now fails a read after sealing rather than relying
 on deletion of an unsealed failed write. Focused storage tests pass (3.055s).
 Corrective full verification, independent re-review and native final-head /
 actual-merge CI remain revision-bound requirements recorded in PR #24.
+
+#### Task 8I completion
+
+Corrective head `36b74655585dda186e8a93aec73b29488d979470` passed the full
+local verification matrix and independent AI R2 review with no remaining
+actionable findings in this output-storage slice. Native PR CI `35113732545`
+passed on macOS and Windows. PR #24 was merged as
+`29a84b60637f9553d884fd652de55611c731958b`; actual-main CI `35115089116`
+also passed every required native step on both platforms. PR #24 records
+the exact revision/tree comparison, test commands, findings and correction.
+These are not human approval, source-review clearance or production acceptance.
+
+Actual-main installed-binary normal/race tests also passed their safety
+assertions. Ordinary-user scan and plan still returned incomplete results
+and exit 1. Issue #18 remains open, as do #23's source-review requirements.
+
+### Task 8J: Read and revalidate stored bundles
+
+This slice delivers the stored-data verification part of the accepted
+recovery design. It is independent of source capture, recovery refs and Git
+mutation. It neither retries the unavailable source review nor clears #23;
+process visibility/permissions in #18, the source-dependent snapshot manager,
+apply/restore, and release qualification retain their separate gates.
+
+**Files:**
+- Create: `internal/fssecure/read_directory*.go` for the bounded native reader
+  and common/native/fault/unsupported-platform tests.
+- Create: `internal/snapshot/read_bundle*.go` for receipt-bound bundle reading
+  and pure/native/unsupported-platform tests.
+
+**Interfaces:**
+
+```go
+type PrivateFileLimit struct {
+	Name         string
+	MaximumBytes int64
+}
+
+func ReadPrivateDirectory(ctx context.Context, path string,
+	limits []PrivateFileLimit, maximumBytes int64) ([]PrivateFile, error)
+
+type BundleContents struct {
+	ManifestContents []byte
+	Payloads         map[string][]byte
+}
+
+func ReadBundle(ctx context.Context, receipt BundleReceipt,
+	maximumBytes int64) (BundleContents, error)
+```
+
+The private-directory reader requires a nonempty exact file set, valid
+portable leaf names without case-folded duplicates, positive safely
+representable per-file and aggregate limits, and an absolute lexically clean
+non-root path. It returns files in requested order with owned bytes, including
+valid zero-length files. `ErrPrivateDirectoryLimit` identifies stored per-file
+or aggregate size overflow. Invalid arguments fail before opening files.
+
+On macOS it resolves parent components using the existing private-path policy,
+then pins native nofollow parent/directory identities and uses read-only,
+descriptor-relative operations. Existing parent and bundle privacy,
+ownership, native filesystem security and regular single-link private files
+must hold; it never creates directories, repairs modes, renames or removes
+anything. Enumerations read at most the expected entry count plus one, reject
+missing or extra entries, and revalidate the exact set after reading. Reads
+honor per-file and aggregate byte limits without trusting file size alone.
+Observed identity, metadata or security changes, I/O errors, cancellation and
+checked-close errors return no partial contents. Uncertain stored bytes are
+left untouched. Finite checks do not promise arbitrary-namespace atomicity,
+ABA immunity or identity before the first retained native observation.
+
+The snapshot wrapper validates the receipt's identifier, absolute clean path,
+matching basename and SHA-256 syntax, context and byte budget before any I/O.
+It requests `manifest.json` first (capped by the existing 32 MiB manifest bound),
+then the five required payloads in their existing fixed order. It requires
+the exact ordered result, checks byte bounds before cloning, matches the
+encoded manifest's SHA-256 and decoded snapshot ID to the receipt, and calls
+the existing whole-bundle verifier for canonical schema, payload hashes,
+archive validity and untracked accounting. Any error yields empty contents
+and `ErrBundleRead`, retaining its underlying cause and limit category.
+
+Returned bytes are owned in-memory storage evidence, not proof of a source
+state, plan authorization or a guarantee that disk contents cannot later
+change. Authenticating/binding a receipt to a plan or durable journal belongs
+to the later manager/apply lifecycle. No mutation command is exposed here.
+Non-macOS native reads return `errors.ErrUnsupported` without opening or
+changing filesystem objects; existing Windows behavior and CI are preserved.
+
+- [x] Write failing reader tests for privacy, exact entries, per-file and
+  aggregate bounds, empty files, observed changes, I/O/close faults,
+  cancellation and unchanged stored bytes; demonstrate native assertion RED.
+- [x] Write failing wrapper tests for invalid arguments before I/O, exact
+  requests/results, receipt binding, limits, full bundle validation, owned
+  bytes and no partial results.
+- [x] Implement the native reader and wrapper, then prove native
+  publish/read round trips and unsupported-platform refusal.
+- [x] Run all AGENTS.md commands; obtain independent AI review for the full
+  slice, fix blocking findings with RED/GREEN evidence and re-review.
+- [ ] Open a scoped PR, pass native macOS/Windows CI, and verify the
+  authorized merge's actual-main CI before advancing.
+
+#### Task 8J implementation evidence
+
+The native reader's compiling unsupported stub failed the valid-directory
+assertion before implementation. The wrapper's compiling error stub likewise
+failed behavioral assertions. A later wrapper regression demonstrated that a
+reader could modify the supplied limits/order and bypass independent result
+validation; the wrapper now passes a cloned request and retains its own
+verification contract. Focused normal/race wrapper checks and its independent
+AI spec/quality review pass; that review covers only the wrapper, not the
+integrated slice or any source-dependent lifecycle.
+
+The controller verified the native implementer's source hashes and ran
+`go test -count=1 -run '^Test(ReadPrivateDirectory|ReadBundle)' -v ./internal/fssecure ./internal/snapshot`
+on Go 1.26.5 darwin/arm64. Native private-directory and bundle publish/read
+round trips pass, including unchanged stored bytes and permissions, empty
+files, corruption, byte limits, receipt binding and no partial results.
+Windows test-binary cross-compilation and module verification pass; these are
+not native Windows test execution.
+
+The controller's full uncached normal and race suites pass (snapshot 69.266s
+and 96.829s; fssecure 7.555s and 15.822s), as do vet, build, empty formatting
+and whitespace checks. Complete source hashes stayed unchanged throughout
+that matrix. A separate independent AI review of the complete integrated
+slice, its plan and helper integration returned spec-compliance and
+code-quality PASS with no actionable findings. The reviewer independently
+checked focused tests and candidate hashes; this is not human approval.
+Candidate-bound native macOS/Windows PR CI and actual-main CI remain pending.
 
 ### Remaining Task 8 lifecycle
 
