@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8H bounded read-only source capture
+- Status: In progress — Task 8I private bundle publication
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -33,8 +33,12 @@ merge. Task 8G's bounded whole-bundle verification passed independent review
 and native macOS/Windows CI on its final head and actual merge, without changing
 the legacy hash-only payload contract. Task 8H now composes the guarded readers
 into bounded, revalidated source capture.
-Task 8 source capture, publication and restore, and Tasks 9–11 cleanup and
-recovery remain pending.
+PR #14 was merged at the user's explicit direction on September 16, 2026;
+its two original technical-review concerns remain unresolved and are retained
+in [follow-up #23](https://github.com/hellices/treeclear/issues/23). That merge
+decision is not an independent clearance of those concerns. Task 8I adds an
+independent output-storage primitive; snapshot creation orchestration and
+restore, and Tasks 9–11 cleanup and recovery remain pending.
 Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
@@ -3410,6 +3414,78 @@ ABA immunity is claimed. Revision-bound local and native verification results
 are recorded in PR #14 after validation; the failing tests-only run is not
 acceptance evidence. The two original threads still require independent
 assessment of the corrected boundaries and supported alias policy before merge.
+
+#### Maintainer-directed merge (2026-09-16)
+
+The maintainer subsequently explicitly directed the merge with the disclosed
+review gap. PR #14 merged `ae790aac88228cdaa65c5b48ec20f7a97146f4f8` as
+`7b9298ce1a6814fb7d8734212b0cfd5803f9e0b4`. The actual merge's complete tree
+equals the previously tested synthetic merge tree; both actual-main native
+macOS and Windows jobs passed in CI `35082714642`, with every required
+normal/race/vet/build/format/unchanged-source step executed. No admin bypass,
+force push, repository protection change, elevated probe or release occurred.
+The two technical concerns remain unresolved and are retained in #23. This is
+a merge decision and verification record, not the missing independent verdict.
+
+### Task 8I: Private bundle publication
+
+This slice implements the already specified private staging/publication
+boundary, independently of source capture and Git mutation. It accepts only
+an already constructed, canonically encoded manifest and its exact bounded
+payload set. It does not claim that those bytes came from a particular Git
+state or that a detached recovery ref exists. Source/plan binding, recovery
+refs, the snapshot manager, restore and apply retain their later requirements.
+The outstanding PR #14 concerns tracked in #23 are not re-reviewed or closed
+by this slice.
+
+**Interfaces:**
+- `fssecure.PrivateFile{Name, Contents}` and
+  `PublishPrivateDirectory(ctx, path, files) (string, error)`.
+- `snapshot.PublishBundle(ctx, directory, manifestContents, payloads,
+  maximumBytes) (BundleReceipt, error)`.
+- `BundleReceipt` contains the snapshot ID, canonical destination and exact
+  encoded-manifest SHA-256. It is a storage result, not apply authorization.
+
+The destination's parent must already exist with verified private ownership,
+mode and native filesystem security. This primitive neither creates ancestor
+chains nor repairs an existing parent's permissions. Parent initialization
+and its durability are the later manager's responsibility. It must not be used
+to publish inside source worktrees or repository administration directories.
+
+On macOS, create an exclusive private sibling staging directory and retain
+native nofollow handles to the parent and staging directory. Use
+descriptor-relative operations for child creation, verification, cleanup and
+publication. Check observed path/handle identities and private security at
+the operation boundaries. Write the five payloads in fixed order, then
+`manifest.json` last. Each file is private, synchronized and read back with
+an exact-size bound; byte equality to the verified input proves the same
+hashes were stored. Synchronize staging and parent directories, then perform
+an atomic native no-replace rename and synchronize the parent again.
+
+Existing targets, including empty directories and symlinks, are never
+replaced. No invalid bundle, cancellation or I/O/security/checked-close error
+returns a receipt. Before publication, clean only known owned staging entries;
+uncertain cleanup preserves data and reports failure. An error after rename
+preserves the final private directory rather than deleting a recovery copy.
+Callers must handle that ambiguous outcome as failure, not remove a worktree
+or blindly overwrite/retry the same ID. Finite observations do not promise
+atomicity against arbitrary external namespace changes or ABA immunity, and
+`fsync` is not a claim of hardware/power-loss qualification.
+
+Only macOS native directory publication is implemented in this slice. Other
+platforms return `errors.ErrUnsupported` before filesystem writes; existing
+Windows storage APIs and native CI remain intact. Windows publication and
+runtime qualification remain in #15. No CLI mutation surface is added.
+
+- [ ] Write failing tests for bundle validation before writes, aggregate byte
+  limits, manifest-last ordering, owned bytes, receipts and cancellation.
+- [ ] Write failing native private-storage tests for privacy, no-replace
+  publication, identity changes, read-back, I/O failures and safe cleanup.
+- [ ] Implement the bounded snapshot wrapper and macOS storage primitive;
+  prove unsupported platforms do not write.
+- [ ] Run all AGENTS.md commands, independent AI review and focused fixes.
+- [ ] Open the scoped PR, pass native macOS/Windows CI, and verify the
+  authorized merge's actual-main CI before advancing.
 
 ### Remaining Task 8 lifecycle
 
