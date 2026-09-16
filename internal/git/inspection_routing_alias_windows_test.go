@@ -175,6 +175,10 @@ func TestClientInspectAllowsWindowsCanonicalCommonDirectoryAliases(test *testing
 	}
 }
 
+func TestClientVerifyCommonGitDirRejectsReplacedAlias(test *testing.T) {
+	assertCommonIdentityRejectsReplacedAlias(test, inspectionRoutingWindowsJunction)
+}
+
 func TestClientInspectRechecksWindowsCanonicalCommonBeforeHashes(test *testing.T) {
 	repository := testutil.NewRepository(test)
 	worktree := repository.AddWorktree(test, "common recheck target", "topic")
