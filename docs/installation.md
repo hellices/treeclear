@@ -109,6 +109,23 @@ partial plan's terminal error keeps its plan ID and incomplete status without
 repeating all nested collection errors. This diagnostics fix is separate from
 the visibility blocker.
 
+### Why installation does not request administrator access
+
+The current user-local installation needs no persistent administrator
+privileges. Authorizing an installer would not make later `scan` processes
+privileged. A registered root helper would be a separate security-sensitive
+component, even if it ran only on demand and intended to perform read-only
+inspection. Do not run the whole CLI as root or add a setuid/sudoers shortcut.
+
+The [permission feasibility design](specs/2026-09-16-macos-process-visibility.md)
+first tests isolated, explicitly authorized process/path inspection on a
+disposable macOS runner. That test tool is not installed by `make install` and
+does not grant the CLI any privilege. Its elevated test driver refuses local
+and self-hosted execution, even if its opt-in environment variable is set.
+A future signed helper needs separate
+review of caller authorization, updates, revocation and removal; a passing
+root API experiment alone does not qualify that helper or resolve #18.
+
 ## Upgrade or return to a previous preview
 
 Select the reviewed revision you intend to evaluate in a clean checkout,
