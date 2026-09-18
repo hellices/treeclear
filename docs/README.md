@@ -25,6 +25,7 @@ plugins belong in their standard configuration directories, such as
 
 - [macOS Source-Preview Installation](installation.md)
 - [Treeclear Architecture](architecture/2026-09-12-treeclear.md)
+- [Explicit Whole-Worktree Removal Contract](specs/2026-09-18-explicit-worktree-removal.md)
 - [Implementation Plans](plans/README.md)
 - [Minimal Development Checks](design/development-harness.md)
 - [Development and Review Workflow](development.md)

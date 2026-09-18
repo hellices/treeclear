@@ -24,10 +24,22 @@ review findings in shared or macOS code or waive any safety invariant.
 ## Safety
 
 - Unknown, inaccessible, malformed, or conflicting evidence blocks cleanup.
-- Never remove primary, current, dirty, locked, or active worktrees.
-- Never force-remove ordinary cleanup targets; preserve local branches.
+- Never remove primary, current, locked, or active worktrees. Dirty worktrees
+  remain protected in ordinary/scheduled cleanup. Only a reviewed explicit
+  whole-worktree selection may authorize discarding dirty and ignored contents;
+  see [the removal contract](docs/specs/2026-09-18-explicit-worktree-removal.md).
+- Explicit whole-worktree removal defaults to no backup; `--skip-dirty` and
+  requested backup are separate plan-bound choices. Do not reinterpret old
+  plans or expose unimplemented options as working functionality.
+- Never force-remove ordinary cleanup targets. An explicit discard-all plan
+  may authorize a single Git force only after all retained checks pass;
+  never defeat locks, add targets, or use recursive-delete fallbacks.
+  Preserve local branches in every removal mode.
 - Apply stays offline, revalidates the full plan, and verifies all required
-  snapshots before any removal. Adapters provide evidence, not mutation APIs.
+  opt-in backups before any removal; backup failure never falls back to
+  unbacked deletion. Adapters provide evidence, not mutation APIs.
+- This scope change does not clear source-identity review #23 or process
+  visibility #18. Shared safety findings still gate dependent mutation work.
 - Keep snapshots and evidence local; never upload user data or credentials.
 
 ## PRs and reviews

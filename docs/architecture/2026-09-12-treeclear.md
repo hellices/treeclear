@@ -4,6 +4,25 @@ Status: Accepted
 
 Date: 2026-09-12
 
+## Explicit-removal amendment — 2026-09-18
+
+The maintainer approved a new default for explicitly selected linked
+worktrees: discard all contents, including dirty and ignored files, without
+backup. Local branches and retained target/evidence protections remain.
+[The explicit-removal contract](../specs/2026-09-18-explicit-worktree-removal.md)
+defines selection, optional `--skip-dirty`/backup, confirmation, authenticated
+plan migration, and staged acceptance. Its written details await maintainer
+review; no removal command or new option is implemented by this amendment.
+
+That contract takes precedence over the original clean-only, mandatory-backup,
+and no-force requirements below only for reviewed explicit whole-worktree
+removal. Automatic/scheduled cleanup retains its safe-only restrictions.
+The version-1 plan example and delivered preview remain historical/current
+read-only behavior, not a format that may be reinterpreted for new deletion.
+Recovery sections describe the optional future backup track. Neither this
+amendment nor an unrelated review clears source-identity #23, process
+visibility #18, or release-signing #25.
+
 ## Summary
 
 Treeclear is a cross-platform command-line tool that safely identifies and
@@ -47,17 +66,20 @@ Before cleanup, restore, trash-prune, or scheduler mutation commands are
 exposed, unsupported operating systems must refuse them explicitly without
 mutation. This is a remaining implementation requirement, not an assertion
 that the current read-only preview already enforces a release-platform guard.
-All planning, evidence, snapshot, revalidation, privacy, and recovery safety
-invariants remain unchanged.
+Platform deferral changes no safety requirement. The separately approved
+explicit-removal amendment changes content-disposal and backup policy, not
+the retained evidence, revalidation, privacy, or requested-backup guarantees.
 
 ## Product statement
 
-> Safely clear stale agent worktrees without deleting active or unrecoverable
-> work.
+> Clear explicitly selected stale agent worktrees with transparent disposal
+> policy, without deleting active or insufficiently understood targets.
 
 Treeclear serves both people and coding agents:
 
-- People can inspect, approve, apply, and restore cleanup plans.
+- People can inspect, approve, and apply cleanup plans. Explicit removal
+  defaults to no backup; restore is available only with a separately
+  implemented, requested, and verified backup capability.
 - Agents can call a stable JSON plan/apply protocol through a thin Agent Skill.
 - Scheduled jobs can generate reports or apply an explicitly configured
   safe-only policy without running a daemon.
@@ -87,14 +109,18 @@ heuristic or one provider-specific integration.
 
 ### Safety
 
-- Never remove a dirty, locked, current, active, or insufficiently understood
-  worktree through the default policy.
+- Never remove a primary, locked, current, active, or insufficiently understood
+  worktree. Ordinary/scheduled cleanup also protects dirty worktrees; an
+  explicit discard-all plan may authorize known dirty contents without
+  bypassing any retained protection.
 - Treat missing, inaccessible, malformed, or unsupported evidence as unknown,
   not inactive.
 - Separate planning from mutation.
 - Revalidate every target before the first mutation.
 - Keep local branches by default.
-- Create a verified recovery snapshot before removal.
+- Do not create a backup for explicit removal unless requested. Every
+  requested backup must be verified before any removal; failure never
+  downgrades the plan to unbacked deletion.
 - Make apply offline and deterministic.
 
 ### Multi-agent support
@@ -223,8 +249,10 @@ expiry time.
 ### Apply journal
 
 A durable record of preflight, snapshots, completed actions, skipped actions,
-and failures for one plan. It makes interrupted apply operations observable
-and safely resumable.
+and failures for one plan. Snapshots exist only when requested. The journal
+makes interrupted operations observable; resumption requires trustworthy
+outcomes and fresh revalidation, never a claim that an absent path alone
+proves this plan removed it.
 
 ### Recovery snapshot
 
@@ -247,7 +275,10 @@ The following rules are architectural invariants, not configurable defaults:
    removed.
 9. Plan changes, evidence changes, PID reuse, or Git-state changes abort before
    the first removal.
-10. The default cleanup path never uses `git worktree remove --force`.
+10. Ordinary/scheduled cleanup never uses `git worktree remove --force`.
+    Only an authenticated explicit discard-all plan may authorize a single
+    force after retained checks pass; never defeat a lock, escalate a failed
+    removal, or fall back to recursive filesystem deletion.
 11. The primary worktree cannot be removed.
 12. A local branch is preserved unless the user creates and approves a
     separate branch-deletion plan.
@@ -437,19 +468,28 @@ The apply engine:
 3. re-runs Git, process, and agent evidence collection offline;
 4. recomputes every candidate fingerprint;
 5. aborts the entire batch if any pending candidate changed or became unknown;
-6. writes and verifies all snapshots;
+6. writes and verifies all requested backups, or records explicit no-backup
+   mode without creating recovery artifacts;
 7. removes approved worktrees serially through `git worktree remove`;
 8. writes each state transition to an apply journal;
 9. prunes only administrative records explicitly included in the plan;
-10. reports exact reclaimed bytes and retained recovery data.
+10. reports removal outcomes and accurately qualified space estimates, plus
+    recovery data only when a verified backup was requested.
 
 If a removal fails after earlier removals succeeded, the journal records a
 partial result. A repeated apply verifies already completed paths are absent
-and revalidates all remaining targets before continuing.
+and revalidates all remaining targets before continuing. Ambiguous journal
+outcomes and recreated paths require refusal, not an inferred success or
+another deletion. No-backup apply does not promise rollback.
 
 ## Classification model
 
 Treeclear uses three user-facing classes.
+
+The descriptions below remain the ordinary/scheduled cleanup and scan
+recommendation model. Explicit-removal eligibility separately evaluates all
+retained protections before permitting known dirty contents; removing the
+first `dirty` reason from a short-circuit decision is not sufficient.
 
 ### Protected
 
@@ -910,6 +950,11 @@ authoring justify the runtime and tooling cost.
 
 The JSON plan is stable, canonical, and versioned.
 
+The example below records the version-1 preview. Explicit discard-all
+removal requires a new authenticated schema that binds selection and
+disposal/backup policy. Version-1 plans remain inspectable but are rejected
+by future mutation commands; they are never silently upgraded.
+
 Top-level fields include:
 
 ```json
@@ -946,6 +991,13 @@ Plans omit transcript and prompt contents. Session titles and summaries are
 also omitted by default because they can contain sensitive information.
 
 ## Recovery design
+
+This is the optional future recovery track, not a prerequisite for the
+default unbacked removal feature. The original exclusions below cannot
+qualify a complete backup of discard-all contents: the new opt-in backup
+contract must cover otherwise-lost ignored state or reject the target.
+Until that coverage and restore are reviewed and verified, requested backup
+must fail explicitly without an executable deletion plan.
 
 ### Snapshot contents
 
@@ -1038,10 +1090,15 @@ treeclear trash list
 Running `treeclear` without arguments is read-only and displays a concise
 summary.
 
+Future explicit removal uses repeatable `plan --worktree <exact-path>`
+selection, with optional `--skip-dirty` and, once implemented, `--backup`.
+Planning without targets must not infer executable explicit removals.
+These options are proposed, not supported by the current preview.
+
 ### Mutating commands
 
 ```text
-treeclear apply --plan <plan-id-or-file>
+treeclear apply --plan <plan-id-or-file> [--yes]
 treeclear restore <snapshot-id>
 treeclear trash prune --older-than <duration>
 treeclear adapters update
@@ -1053,6 +1110,10 @@ treeclear schedule remove
 
 Each mutating command clearly identifies its mutation scope and supports
 machine-readable results.
+
+Apply confirms the exact selected paths and disposal policy. `--yes` replaces
+only that confirmation, not any retained check; non-interactive/JSON apply
+requires it. Restore/trash commands belong to the optional backup track.
 
 The scheduler invokes one explicit entry point:
 
@@ -1330,8 +1391,13 @@ The MVP is complete when:
    precondition changes.
 3. Copilot, Claude Code, Cursor, Codex, and OpenCode report capabilities,
    support grades, and evidence or an explicit unavailable reason.
-4. Clean, stale, inactive, recoverable worktrees can be planned and removed.
-5. A removed worktree can be restored from a verified snapshot.
+4. Explicitly selected stale, inactive linked worktrees with known state and
+   retained branch/HEAD references can be removed with all local contents,
+   without backup by default; `--skip-dirty` exclusions are respected.
+5. Installed-binary acceptance proves full selected-content deletion,
+   unselected/protected-target and branch preservation, and no recovery
+   artifacts for no-backup mode. Backup requests either fail without deletion
+   or, after separate qualification, create verified restorable backups.
 6. launchd plan-only jobs can be installed, inspected, and removed on macOS.
 7. A provider fixture change can be handled by an adapter update without
    rebuilding the core.
@@ -1353,7 +1419,8 @@ required for this macOS milestone.
 2. Git inventory and deterministic policy engine.
 3. macOS process evidence, retaining existing Windows compatibility coverage.
 4. Plan, fingerprint, journal, and apply preflight.
-5. Snapshot, removal, and restore.
+5. Versioned explicit selection and unbacked removal. Optional verified
+   backup and restore are separate reviewed slices, not default prerequisites.
 6. Declarative adapter runner and normalized evidence SPI.
 7. Five first-party adapter bundles and fixture suites.
 8. Signed adapter update, pinning, health, and rollback.
