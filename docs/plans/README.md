@@ -115,7 +115,7 @@ the dependent product stages, clear process visibility #18 or source review
 | Unknown never means inactive | `EvidenceState=unknown`, `GitStateKnown`, and reason codes | Policy engine | 001 Tasks 4-6, 002 Tasks 4-10 |
 | Process enumeration must be complete | `process.Collection.Complete` plus global unknown sentinel | Correlator and policy | 001 Tasks 5-6 |
 | No primary/current/locked/active/unknown removal | Full `candidatePreconditions` and complete evidence | Apply revalidator | 001 Tasks 6 and 9 |
-| Dirty disposal only through explicit selection | New schema binding exact selection, disposition, and `skipDirty`; not yet implemented | Eligibility evaluator and apply revalidator | 001 explicit-removal slices |
+| Dirty disposal only through explicit selection | V2 preview binds exact selection, disposition, and `skipDirty`; eligibility/apply remain pending | Preview store now; eligibility evaluator and apply revalidator later | 001 explicit-removal slices |
 | Exact plan and policy | Canonical `PolicySettings`, `PolicyDigest`, candidate fingerprint, expiry | `EnvironmentVerifier` | 001 Tasks 7 and 9 |
 | Exact adapters and commands | Adapter/source/bundle provenance, `AdapterLockDigest`, trust digest, executable, argv, cwd, and environment identities | `EnvironmentVerifier` | 002 Tasks 3-6, 003 Tasks 2 and 5 |
 | Custom trust scope matches apply mode | `Plan.IntendedApplyMode` and scoped trust record | Collector plus apply engine | 002 Task 6, 003 Task 5 |
