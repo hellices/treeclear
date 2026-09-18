@@ -71,12 +71,36 @@ func newExplainCommand(dependencies Dependencies) *cobra.Command {
 			if err := writePlanWarnings(command.ErrOrStderr(), value.Warnings); err != nil {
 				return err
 			}
-			return renderExplanation(command.OutOrStdout(), format, value.ID, *selected)
+			return renderPlanExplanation(command.OutOrStdout(), format, value, *selected)
 		},
 	}
 	command.Flags().StringVar(&reference, "plan", "", "Plan ID or private file path (default: newest authenticated unexpired plan)")
 	command.Flags().StringVar(&format, "format", "human", "Output format: human or json")
 	return command
+}
+
+func renderPlanExplanation(output io.Writer, format string, value domain.Plan, candidate domain.Candidate) error {
+	if value.SchemaVersion == 2 {
+		if format == "json" {
+			return json.NewEncoder(output).Encode(struct {
+				SchemaVersion int                 `json:"schemaVersion"`
+				PlanID        string              `json:"planId"`
+				Removal       *domain.RemovalPlan `json:"removal"`
+				Candidate     domain.Candidate    `json:"candidate"`
+			}{value.SchemaVersion, value.ID, value.Removal, candidate})
+		}
+		if err := renderRemovalPreview(output, value.Removal); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(output, "Selection: %s\n", strconv.Quote(candidateSelectionLabel(candidate))); err != nil {
+			return err
+		}
+	} else if value.SchemaVersion == 1 && format != "json" {
+		if _, err := fmt.Fprintln(output, "Historical version-1 plan: inspection only; apply is unavailable. Recorded actions and snapshot requirements do not authorize removal."); err != nil {
+			return err
+		}
+	}
+	return renderExplanation(output, format, value.ID, candidate)
 }
 
 func renderExplanation(output io.Writer, format, planID string, candidate domain.Candidate) error {

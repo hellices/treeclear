@@ -11,14 +11,16 @@ worktrees: discard all contents, including dirty and ignored files, without
 backup. Local branches and retained target/evidence protections remain.
 [The explicit-removal contract](../specs/2026-09-18-explicit-worktree-removal.md)
 defines selection, optional `--skip-dirty`/backup, confirmation, authenticated
-plan migration, and staged acceptance. Its written details await maintainer
-review; no removal command or new option is implemented by this amendment.
+plan migration, and staged acceptance. The maintainer approved proceeding
+from its written details on September 18, 2026; this amendment itself
+implements no removal command or new option.
 
 That contract takes precedence over the original clean-only, mandatory-backup,
 and no-force requirements below only for reviewed explicit whole-worktree
 removal. Automatic/scheduled cleanup retains its safe-only restrictions.
-The version-1 plan example and delivered preview remain historical/current
-read-only behavior, not a format that may be reinterpreted for new deletion.
+The version-1 plan example remains historical read-only behavior. New plans
+use the contract's version-2 selection preview, also permanently
+non-executable; neither format may be reinterpreted for new deletion.
 Recovery sections describe the optional future backup track. Neither this
 amendment nor an unrelated review clears source-identity #23, process
 visibility #18, or release-signing #25.
@@ -950,10 +952,12 @@ authoring justify the runtime and tooling cost.
 
 The JSON plan is stable, canonical, and versioned.
 
-The example below records the version-1 preview. Explicit discard-all
-removal requires a new authenticated schema that binds selection and
-disposal/backup policy. Version-1 plans remain inspectable but are rejected
-by future mutation commands; they are never silently upgraded.
+The example below records the historical version-1 preview. New plans use
+the [version-2 selection preview](../specs/2026-09-18-explicit-worktree-removal.md#version-2-selection-preview),
+which binds literal selection and disposal/backup intent but always records
+`execution: "preview-only"`, `action: "none"`, and no required snapshot.
+Both versions remain inspectable and are rejected by the apply-load boundary;
+neither is silently upgraded. A qualified execution contract remains pending.
 
 Top-level fields include:
 
@@ -1090,10 +1094,11 @@ treeclear trash list
 Running `treeclear` without arguments is read-only and displays a concise
 summary.
 
-Future explicit removal uses repeatable `plan --worktree <exact-path>`
-selection, with optional `--skip-dirty` and, once implemented, `--backup`.
-Planning without targets must not infer executable explicit removals.
-These options are proposed, not supported by the current preview.
+The read-only preview records repeatable `plan --worktree <exact-path>`
+selection and optional `--skip-dirty`. It explicitly refuses requested
+`--backup`, which requires separately qualified recovery. Planning without
+targets does not infer selection, and all preview actions remain `none`.
+Execution, confirmation, and explicit-removal eligibility remain pending.
 
 ### Mutating commands
 

@@ -4,14 +4,12 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/execx"
 )
 
@@ -100,11 +98,8 @@ func TestCLIPhysicalWorkingDirectoryHelper(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	var candidate domain.Candidate
-	if err := json.Unmarshal(output, &candidate); err != nil {
-		test.Fatal(err)
-	}
-	if candidate.Fingerprint != second.Candidates[0].Fingerprint {
-		test.Fatalf("relative file with PWD=%q selected another authenticated plan: first=%t", workingDirectory, candidate.Fingerprint == first.Candidates[0].Fingerprint)
+	explanation := decodePreviewExplanation(test, output)
+	if explanation.PlanID != second.ID || explanation.Candidate.Fingerprint != second.Candidates[0].Fingerprint {
+		test.Fatalf("relative file with PWD=%q selected another authenticated plan: first=%t", workingDirectory, explanation.Candidate.Fingerprint == first.Candidates[0].Fingerprint)
 	}
 }

@@ -135,7 +135,7 @@ func requireBuilderBlocked(test *testing.T, value domain.Plan, err error, count 
 	requireBuilderFingerprints(test, value)
 }
 
-func TestBuilderClassifiesAndSelectsOnlySafeCandidates(test *testing.T) {
+func TestBuilderClassifiesWithoutSelectingInventoryCandidates(test *testing.T) {
 	builder, request, base, _ := builderFixture(test)
 	safe := builderSibling(base, "alpha-safe")
 	review := builderSibling(base, "beta-review")
@@ -150,7 +150,7 @@ func TestBuilderClassifiesAndSelectsOnlySafeCandidates(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	if value.Summary != (domain.PlanSummary{Safe: 1, Review: 1, Protected: 1, ReclaimableBytes: safe.EstimatedBytes}) {
+	if value.Summary != (domain.PlanSummary{Safe: 1, Review: 1, Protected: 1}) {
 		test.Fatalf("summary = %#v", value.Summary)
 	}
 	if len(value.Candidates) != 3 {
@@ -161,14 +161,10 @@ func TestBuilderClassifiesAndSelectsOnlySafeCandidates(test *testing.T) {
 		if candidate.ID == "" || candidate.Decision.Classification != classification {
 			test.Fatalf("candidate %d = %#v", index, candidate)
 		}
-		wantAction := "none"
-		if classification == domain.Safe {
-			wantAction = "remove"
-		}
-		if candidate.Action != wantAction || candidate.Snapshot.Required != (classification == domain.Safe) {
+		if candidate.Action != "none" || candidate.Selection == nil || candidate.Selection.Selected {
 			test.Fatalf("candidate selection = %#v", candidate)
 		}
-		if candidate.Snapshot.MaximumBytes != request.Settings.SnapshotMaxBytes || candidate.Snapshot.UntrackedFiles != candidate.Worktree.Status.Untracked {
+		if candidate.Snapshot != (domain.SnapshotPlan{}) {
 			test.Fatalf("snapshot requirements = %#v", candidate.Snapshot)
 		}
 		if len(candidate.Evidence.Adapters) != 0 || len(candidate.Evidence.Agents) != 0 {
@@ -194,7 +190,7 @@ func TestBuilderRecordsPolicyModeVersionAndExpiry(test *testing.T) {
 			if err != nil {
 				test.Fatal(err)
 			}
-			if value.SchemaVersion != 1 || value.ToolVersion != builder.Version || value.IntendedApplyMode != mode || value.AdapterLockDigest != request.AdapterLockDigest || value.PolicyDigest != digest {
+			if value.SchemaVersion != PreviewSchemaVersion || value.ToolVersion != builder.Version || value.IntendedApplyMode != mode || value.AdapterLockDigest != request.AdapterLockDigest || value.PolicyDigest != digest {
 				test.Fatalf("plan metadata = %#v", value)
 			}
 			if !value.GeneratedAt.Equal(clock.Now()) || value.GeneratedAt.Location() != time.UTC || !value.ExpiresAt.Equal(clock.Now().Add(request.Settings.PlanExpiry)) {
@@ -470,7 +466,7 @@ func TestBuilderMissingGitProofsProtectOnlyAffectedWorktrees(test *testing.T) {
 			if !reflect.DeepEqual(value.Candidates[1], before.Candidates[1]) {
 				test.Fatalf("missing proof changed healthy candidate: %#v", value.Candidates[1])
 			}
-			if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) {
+			if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1}) {
 				test.Fatalf("missing proof summary = %#v", value.Summary)
 			}
 			if candidate.ID != before.Candidates[0].ID || candidate.Fingerprint == before.Candidates[0].Fingerprint {
@@ -557,7 +553,7 @@ func TestBuilderPreservesCallerOwnedSlicesAndEvidence(test *testing.T) {
 	}
 }
 
-func TestBuilderRejectsReclaimableByteOverflow(test *testing.T) {
+func TestBuilderPreviewDoesNotSumUnactionedBytes(test *testing.T) {
 	builder, request, first, _ := builderFixture(test)
 	first.EstimatedBytes = math.MaxInt64
 	second := builderSibling(first, "second")
@@ -566,9 +562,8 @@ func TestBuilderRejectsReclaimableByteOverflow(test *testing.T) {
 		return []domain.Worktree{first, second}, nil
 	})
 	value, err := builder.Build(context.Background(), request)
-	requireBuilderZeroPlan(test, value, err)
-	if !strings.Contains(err.Error(), "overflow") {
-		test.Fatalf("overflow diagnostic = %v", err)
+	if err != nil || value.Summary != (domain.PlanSummary{Safe: 2}) {
+		test.Fatalf("preview counts unactioned bytes: %#v, %v", value.Summary, err)
 	}
 }
 
@@ -700,10 +695,10 @@ func TestBuilderKeepsProcessActivityScoped(test *testing.T) {
 		}}, nil
 	})
 	value, err := builder.Build(context.Background(), request)
-	if err != nil || value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: second.EstimatedBytes}) {
+	if err != nil || value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1}) {
 		test.Fatalf("scoped activity summary = %#v, %v", value.Summary, err)
 	}
-	if len(value.Candidates[0].Evidence.Processes) != 1 || value.Candidates[0].Decision.Reasons[0].Code != "active_process" || value.Candidates[1].Action != "remove" {
+	if len(value.Candidates[0].Evidence.Processes) != 1 || value.Candidates[0].Decision.Reasons[0].Code != "active_process" || value.Candidates[1].Decision.Classification != domain.Safe || value.Candidates[1].Action != "none" {
 		test.Fatalf("process correlation = %#v", value.Candidates)
 	}
 	requireBuilderFingerprints(test, value)
@@ -802,7 +797,7 @@ func TestBuilderScopesRealCollectorDiagnostics(test *testing.T) {
 				if !reflect.DeepEqual(value.Candidates[1], before.Candidates[1]) {
 					test.Fatalf("local process evidence changed healthy candidate: %#v", value.Candidates[1])
 				}
-				if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) {
+				if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1}) {
 					test.Fatalf("scoped summary = %#v", value.Summary)
 				}
 			}
@@ -826,7 +821,7 @@ func TestBuilderScopesCollectorWorktreePathFailure(test *testing.T) {
 	if err == nil || !validPlanID(value.ID) || len(value.Candidates) != 2 {
 		test.Fatalf("missing process root = %#v, %v", value.Summary, err)
 	}
-	if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) || value.Candidates[0].Action != "none" || value.Candidates[1].Action != "remove" {
+	if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1}) || value.Candidates[0].Action != "none" || value.Candidates[1].Decision.Classification != domain.Safe || value.Candidates[1].Action != "none" {
 		test.Fatalf("worktree path failure was not scoped: %#v", value.Summary)
 	}
 	if !strings.Contains(strings.Join(value.Warnings, "\n"), worktrees[0].Path) || len(value.Candidates[0].Evidence.Warnings) == 0 || len(value.Candidates[1].Evidence.Warnings) != 0 {
@@ -1020,7 +1015,7 @@ func TestBuilderKeepsMalformedProcessErrorScopesGlobal(test *testing.T) {
 }
 
 func TestBuilderReconcilesRepeatedScopedDiagnostics(test *testing.T) {
-	builder, request, worktrees, info := builderCollectorFixture(test)
+	builder, request, _, info := builderCollectorFixture(test)
 	info.Inspectable, info.Error = false, "name: access denied"
 	collector := process.Collector{Source: builderSourceFunc(func(context.Context) ([]process.Info, error) {
 		return []process.Info{info}, nil
@@ -1042,10 +1037,10 @@ func TestBuilderReconcilesRepeatedScopedDiagnostics(test *testing.T) {
 	if err == nil || !validPlanID(value.ID) || len(value.Candidates) != 2 {
 		test.Fatalf("repeated scoped diagnostics = %#v, %v", value.Summary, err)
 	}
-	if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1, ReclaimableBytes: worktrees[1].EstimatedBytes}) {
+	if value.Summary != (domain.PlanSummary{Protected: 1, Safe: 1}) {
 		test.Fatalf("repeated scoped diagnostics changed scope: %#v", value.Summary)
 	}
-	if value.Candidates[0].Action != "none" || value.Candidates[0].Snapshot.Required || value.Candidates[1].Action != "remove" || !value.Candidates[1].Snapshot.Required || len(value.Candidates[1].Evidence.Warnings) != 0 {
+	if value.Candidates[0].Action != "none" || value.Candidates[0].Snapshot.Required || value.Candidates[1].Decision.Classification != domain.Safe || value.Candidates[1].Action != "none" || value.Candidates[1].Snapshot.Required || len(value.Candidates[1].Evidence.Warnings) != 0 {
 		test.Fatalf("repeated diagnostics changed actions or warnings: %#v", value.Candidates)
 	}
 	if !errors.Is(err, returnedError) || !reflect.DeepEqual(returnedError.Paths, originalPaths) {
@@ -1101,7 +1096,7 @@ func TestBuilderIgnoresNilErrorEntriesWithoutPanicking(test *testing.T) {
 		return process.Collection{Complete: true}, []error{failure, nil}
 	})
 	value, err := builder.Build(context.Background(), request)
-	if err != nil || value.Summary.Safe != 1 || value.Candidates[0].Action != "remove" {
+	if err != nil || value.Summary.Safe != 1 || value.Candidates[0].Action != "none" {
 		test.Fatalf("nil diagnostic became a failure: %#v, %v", value, err)
 	}
 }

@@ -16,6 +16,7 @@ type Plan struct {
 	Candidates           []Candidate          `json:"candidates"`
 	Summary              PlanSummary          `json:"summary"`
 	Warnings             []string             `json:"warnings,omitempty"`
+	Removal              *RemovalPlan         `json:"removal,omitempty"`
 	Integrity            PlanIntegrity        `json:"integrity"`
 }
 
@@ -37,13 +38,14 @@ type PlanScope struct {
 }
 
 type Candidate struct {
-	ID          string       `json:"candidateId"`
-	Worktree    Worktree     `json:"worktree"`
-	Evidence    EvidenceSet  `json:"evidence"`
-	Decision    Decision     `json:"decision"`
-	Action      string       `json:"action"`
-	Fingerprint string       `json:"fingerprint"`
-	Snapshot    SnapshotPlan `json:"snapshot"`
+	ID          string              `json:"candidateId"`
+	Worktree    Worktree            `json:"worktree"`
+	Evidence    EvidenceSet         `json:"evidence"`
+	Decision    Decision            `json:"decision"`
+	Action      string              `json:"action"`
+	Fingerprint string              `json:"fingerprint"`
+	Snapshot    SnapshotPlan        `json:"snapshot"`
+	Selection   *CandidateSelection `json:"selection,omitempty"`
 }
 
 type SnapshotPlan struct {

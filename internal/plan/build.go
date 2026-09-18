@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -27,6 +26,9 @@ type Request struct {
 	Settings          domain.PolicySettings
 	IntendedApplyMode domain.ApplyMode
 	AdapterLockDigest string
+	SelectedPaths     []string
+	SkipDirty         bool
+	BackupRequested   bool
 }
 
 type InventoryLoader interface {
@@ -56,6 +58,7 @@ func (builder Builder) Build(ctx context.Context, request Request) (domain.Plan,
 	}
 	request.Roots = slices.Clone(request.Roots)
 	request.Settings.BaseBranches = slices.Clone(request.Settings.BaseBranches)
+	request.SelectedPaths = slices.Clone(request.SelectedPaths)
 	now := builder.Now
 	if now == nil {
 		now = time.Now
@@ -69,11 +72,15 @@ func (builder Builder) Build(ctx context.Context, request Request) (domain.Plan,
 		return domain.Plan{}, fmt.Errorf("%w: %w", ErrPlanInvalid, err)
 	}
 	value := domain.Plan{
-		SchemaVersion: 1, GeneratedAt: generatedAt, ExpiresAt: generatedAt.Add(request.Settings.PlanExpiry),
+		SchemaVersion: PreviewSchemaVersion, GeneratedAt: generatedAt, ExpiresAt: generatedAt.Add(request.Settings.PlanExpiry),
 		ToolVersion: builder.Version, IntendedApplyMode: request.IntendedApplyMode,
 		PolicyDigest: digest, AdapterLockDigest: request.AdapterLockDigest,
 		Scope: domain.PlanScope{Roots: request.Roots}, Candidates: []domain.Candidate{},
 		Warnings: []string{"Core-only plan: agent-provider adapters are not implemented; this is not authorization to remove worktrees."},
+		Removal: &domain.RemovalPlan{
+			Intent: domain.RemovalIntentInventory, ContentDisposition: domain.ContentDiscardAll,
+			BackupMode: domain.BackupNone, SkipDirty: request.SkipDirty, SelectedPaths: []string{}, Execution: domain.ExecutionPreviewOnly,
+		},
 	}
 	if _, err := canonicalPlanJSON(value); err != nil {
 		return domain.Plan{}, fmt.Errorf("%w: %w", ErrPlanInvalid, err)
@@ -117,6 +124,18 @@ func (builder Builder) Build(ctx context.Context, request Request) (domain.Plan,
 	if err := validateBuildIdentities(worktrees); err != nil {
 		return abort(err)
 	}
+	selectedPaths, err := matchSelectedPaths(request.SelectedPaths, worktrees)
+	if err != nil {
+		return abort(err)
+	}
+	value.Removal.SelectedPaths = selectedPaths
+	selected := make(map[string]bool, len(selectedPaths))
+	for _, path := range selectedPaths {
+		selected[path] = true
+	}
+	if len(selected) != 0 {
+		value.Removal.Intent = domain.RemovalIntentExplicit
+	}
 	processes := process.Collection{Complete: true}
 	var processErrors []error
 	if len(worktrees) != 0 {
@@ -150,17 +169,12 @@ func (builder Builder) Build(ctx context.Context, request Request) (domain.Plan,
 		}
 		candidate := domain.Candidate{
 			ID: identifier, Worktree: worktree, Evidence: evidence, Action: "none",
-			Decision: policy.Evaluate(worktree, evidence, domain.Policy{Now: generatedAt, Settings: request.Settings}),
-			Snapshot: domain.SnapshotPlan{MaximumBytes: request.Settings.SnapshotMaxBytes, UntrackedFiles: worktree.Status.Untracked},
+			Decision:  policy.Evaluate(worktree, evidence, domain.Policy{Now: generatedAt, Settings: request.Settings}),
+			Selection: previewSelection(worktree, selected[worktree.Path], request.SkipDirty),
 		}
 		switch candidate.Decision.Classification {
 		case domain.Safe:
-			candidate.Action, candidate.Snapshot.Required = "remove", true
 			value.Summary.Safe++
-			if worktree.EstimatedBytes < 0 || worktree.EstimatedBytes > math.MaxInt64-value.Summary.ReclaimableBytes {
-				return abort(fmt.Errorf("%w: reclaimable bytes overflow", ErrPlanInvalid))
-			}
-			value.Summary.ReclaimableBytes += worktree.EstimatedBytes
 		case domain.Review:
 			value.Summary.Review++
 		case domain.Protected:
@@ -216,7 +230,7 @@ func (builder Builder) validateRequest(request Request) error {
 	default:
 		return fmt.Errorf("%w: unknown minimum trust grade %q", ErrPlanInvalid, settings.MinimumTrustGrade)
 	}
-	return nil
+	return validatePreviewRequest(request)
 }
 
 func nilBuildValue(value any) bool {

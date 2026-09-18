@@ -70,12 +70,13 @@ func TestPlanSavesAndExportsCanonicalJSON(test *testing.T) {
 	if err != nil {
 		test.Fatalf("plan error = %v, diagnostics = %q", err, diagnostics)
 	}
-	if value.SchemaVersion != 1 || value.IntendedApplyMode != domain.ApplyInteractive || value.Integrity.MAC == "" || value.GeneratedAt.IsZero() {
+	if value.SchemaVersion != 2 || value.IntendedApplyMode != domain.ApplyInteractive || value.Integrity.MAC == "" || value.GeneratedAt.IsZero() {
 		test.Fatalf("plan metadata = %#v", value)
 	}
-	if value.ExpiresAt.Sub(value.GeneratedAt) != 15*time.Minute || value.Summary.Safe != 1 || value.Candidates[0].Action != "remove" || !value.Candidates[0].Snapshot.Required {
+	if value.ExpiresAt.Sub(value.GeneratedAt) != 15*time.Minute || value.Summary.Safe != 1 {
 		test.Fatalf("plan defaults = %#v", value)
 	}
+	assertSelectionPreview(test, value, []string{}, false)
 	savedPath := filepath.Join(dependencies.DataDirectory, "plans", value.ID+".json")
 	saved, err := os.ReadFile(savedPath)
 	if err != nil || !bytes.Equal(output, append(bytes.Clone(saved), '\n')) {
@@ -92,9 +93,9 @@ func TestPlanSavesAndExportsCanonicalJSON(test *testing.T) {
 	if err != nil {
 		test.Fatalf("explain bare export: %v", err)
 	}
-	var candidate domain.Candidate
-	if err := json.Unmarshal(output, &candidate); err != nil || !reflect.DeepEqual(candidate, value.Candidates[0]) {
-		test.Fatalf("explain candidate mismatch: %v", err)
+	explanation := decodePreviewExplanation(test, output)
+	if explanation.PlanID != value.ID || !reflect.DeepEqual(explanation.Removal, value.Removal) || !reflect.DeepEqual(explanation.Candidate, value.Candidates[0]) {
+		test.Fatalf("explain preview mismatch: %#v", explanation)
 	}
 }
 
@@ -208,16 +209,17 @@ func TestExplainUsesLatestWithoutRecollectionOrCurrentConfig(test *testing.T) {
 	if err != nil || inventory.calls != calls {
 		test.Fatalf("explain recollected or read current config: %v, calls = %d", err, inventory.calls)
 	}
-	var candidate domain.Candidate
-	if err := json.Unmarshal(output, &candidate); err != nil || candidate.Worktree.Head != "new-head" {
-		test.Fatalf("explain did not use latest plan: %q, %v", output, err)
+	explanation := decodePreviewExplanation(test, output)
+	if explanation.PlanID != latest.ID || explanation.Candidate.Worktree.Head != "new-head" {
+		test.Fatalf("explain did not use latest plan: %q", output)
 	}
 	output, _, err = runExplain(dependencies, first.Candidates[0].ID, "--plan", first.ID, "--format", "json")
 	if err != nil {
 		test.Fatal(err)
 	}
-	if err := json.Unmarshal(output, &candidate); err != nil || candidate.Worktree.Head == "new-head" {
-		test.Fatalf("explicit plan ignored: %q, %v", output, err)
+	explanation = decodePreviewExplanation(test, output)
+	if explanation.PlanID != first.ID || !reflect.DeepEqual(explanation.Candidate, first.Candidates[0]) {
+		test.Fatalf("explicit plan ignored: %q", output)
 	}
 }
 

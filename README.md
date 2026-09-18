@@ -12,8 +12,9 @@ with all local contents, including dirty and ignored files, without backup
 by default. Branches and non-optional target/evidence protections remain.
 Opt-in backup and `--skip-dirty` are separate choices. This is the
 [new removal contract](docs/specs/2026-09-18-explicit-worktree-removal.md),
-not available flags or deletion functionality; the current version-1 preview
-behavior documented below is unchanged.
+not available deletion functionality. The read-only version-2 preview now
+records literal `--worktree` selection and `--skip-dirty`; requesting
+`--backup` fails explicitly because backup is not implemented.
 
 **Platform scope:** the first supported release targets macOS. Windows support
 is deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
@@ -46,6 +47,7 @@ go run ./cmd/treeclear version
 go run ./cmd/treeclear scan --root /path/to/workspace
 go run ./cmd/treeclear scan --root /path/to/workspace --inactivity-threshold 14d --format json
 go run ./cmd/treeclear plan --root /path/to/workspace --format json --output /path/to/plan.json
+go run ./cmd/treeclear plan --root /path/to/workspace --worktree "/path/to/linked worktree" --skip-dirty
 go run ./cmd/treeclear explain <candidate-id> --plan /path/to/plan.json
 ```
 
@@ -62,7 +64,7 @@ protected. Uninspectable processes or failed collection are not inactivity.
 Scan does not write a plan. Branches, indexes, and worktree registrations remain
 unchanged by scan, plan, and explain.
 
-JSON output includes `schemaVersion`, `toolVersion`, `collectedAt`, `complete`,
+Scan JSON output includes `schemaVersion`, `toolVersion`, `collectedAt`, `complete`,
 `worktrees` (each with `worktree`, `evidence`, and `decision`), and `warnings`.
 Incomplete collection still prints available results, protects candidates,
 sets `complete: false`, and exits with status 1. Human output escapes control
@@ -75,10 +77,35 @@ directions to full JSON. JSON retains the complete warning list.
 `plan` saves a private, authenticated plan under the OS user-configuration
 directory at `treeclear/plans/<plan-id>.json`. The default expiry is exactly
 15 minutes and the default inactivity threshold is 7 days. Candidate IDs are
-stable for a worktree identity, while each plan gets a fresh ID. Only safe
-candidates receive a proposed `remove` action, always requiring a recovery
-snapshot; review and protected candidates receive `none`. Actual snapshots
-and apply are not available in this preview.
+stable for a worktree identity, while each plan gets a fresh ID. Newly
+generated plans use schema version 2 with `execution: "preview-only"`.
+**Every candidate has action `none`, no required snapshot, and no scheduled
+reclaimable bytes**, even when selected or classified `safe`. Ordinary
+inventory classification is not explicit-removal eligibility. Actual
+snapshots and apply are not available in this preview.
+
+Repeat `--worktree <path>` to record exact registered linked-worktree roots.
+Spaces and commas are literal; relative paths resolve against the invocation
+directory. Globs and prefixes do not expand selection. Duplicate, overlapping,
+unmatched, and primary-root selections fail without saving a plan. Without
+targets, the plan is an inventory preview with every candidate unselected.
+Configuration and environment variables cannot supply these selections.
+
+The authenticated `removal` record binds the requested `discard-all` contents,
+`none` backup mode, exact `selectedPaths`, `skipDirty`, intent, and preview-only
+execution. Default `--skip-dirty=false` records the all-content choice,
+including dirty, untracked, and ignored files, without backup. With explicit
+targets, `--skip-dirty` records a `dirty` exclusion for known staged, unstaged,
+unmerged, or non-ignored untracked changes; ignored files alone do not trigger
+that exclusion. Selection and exclusions are visible separately from ordinary
+classification. Neither permits deletion, overrides unknown evidence, or
+provides an undo. Local branches remain untouched.
+
+`--backup` fails before collection or saving a plan; it never silently falls
+back to no backup. `--backup=false` makes no backup request. `--yes`, force,
+and apply are not exposed. Authenticated version-1 plans remain inspectable
+with their original snapshot intent; v1 and v2 previews are rejected by the
+apply-load boundary and never become executable after an upgrade.
 
 Plan JSON on stdout contains the signed, versioned plan; diagnostics go to
 stderr. Partial collection failures still save and print an inspectable plan,
@@ -108,9 +135,11 @@ by generation time. It does not silently skip malformed or inaccessible plan
 documents, or search older plans to find a missing candidate. Explicit
 `--plan` accepts an ID or private file path and does not re-read current policy
 or collect new Git/process evidence. A filename that is also a valid plan ID
-needs `./` or an absolute path to disambiguate it. JSON explanation output is
-one complete candidate; human output includes reasons, inactivity, Git state,
-process evidence, and snapshot requirements.
+needs `./` or an absolute path to disambiguate it. Version-2 JSON explanations
+contain `schemaVersion`, `planId`, `removal`, and the complete `candidate`.
+Version-1 explanations retain their historical candidate-only JSON shape.
+Human output includes selection/disposal intent, reasons, inactivity, Git
+state, process evidence, and the preview's limitations.
 
 ## Configuration
 

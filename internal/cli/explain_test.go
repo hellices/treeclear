@@ -19,6 +19,61 @@ import (
 	"github.com/hellices/treeclear/internal/process"
 )
 
+func TestExplainLegacyV1RemainsCandidateOnly(test *testing.T) {
+	dependencies, value := legacyExplainFixture(test)
+	output, _, err := runExplain(dependencies, value.Candidates[0].ID, "--plan", value.ID, "--format", "json")
+	if err != nil {
+		test.Fatal(err)
+	}
+	expected, err := json.Marshal(value.Candidates[0])
+	if err != nil || !bytes.Equal(bytes.TrimSuffix(output, []byte("\n")), expected) {
+		test.Fatalf("legacy candidate-only JSON changed: %q, %v", output, err)
+	}
+	output, _, err = runExplain(dependencies, value.Candidates[0].ID, "--plan", value.ID)
+	if err != nil {
+		test.Fatal(err)
+	}
+	snapshot, err := json.MarshalIndent(value.Candidates[0].Snapshot, "", "  ")
+	if err != nil || !bytes.Contains(output, snapshot) || !bytes.Contains(output, []byte(`Action: "remove"`)) || bytes.Contains(output, []byte("discard-all")) {
+		test.Fatalf("legacy snapshot intent was reinterpreted: %q, %v", output, err)
+	}
+	if !bytes.Contains(output, []byte("inspection only")) || !bytes.Contains(output, []byte("apply is unavailable")) {
+		test.Fatalf("legacy recorded actions appear executable: %q", output)
+	}
+}
+
+func legacyExplainFixture(test *testing.T) (Dependencies, domain.Plan) {
+	test.Helper()
+	dependencies, _ := planFixture(test)
+	value, _, _, err := runPlan(test, dependencies)
+	if err != nil {
+		test.Fatal(err)
+	}
+	value.ID = "plan_legacy"
+	value.SchemaVersion = 1
+	value.Removal = nil
+	value.Summary.ReclaimableBytes = value.Candidates[0].Worktree.EstimatedBytes
+	for index := range value.Candidates {
+		candidate := &value.Candidates[index]
+		candidate.Selection = nil
+		candidate.Action = "remove"
+		candidate.Snapshot = domain.SnapshotPlan{Required: true, MaximumBytes: 1024}
+		candidate.Fingerprint, err = plan.CandidateFingerprint(*candidate)
+		if err != nil {
+			test.Fatal(err)
+		}
+	}
+	store := plan.NewStore(dependencies.DataDirectory, dependencies.Now, nil)
+	if _, err := store.Save(context.Background(), value); err != nil {
+		test.Fatal(err)
+	}
+	value, err = store.Load(context.Background(), value.ID)
+	if err != nil {
+		test.Fatal(err)
+	}
+	return dependencies, value
+}
+
 func TestExplainReportsRecordedPlanWarnings(test *testing.T) {
 	dependencies, _ := planFixture(test)
 	value, _, _, err := runPlan(test, dependencies)
@@ -137,7 +192,7 @@ func TestExplainRejectsTamperedAndExpiredPlans(test *testing.T) {
 				if err != nil {
 					test.Fatal(err)
 				}
-				changed := bytes.Replace(contents, []byte(`"action":"remove"`), []byte(`"action":"none"`), 1)
+				changed := bytes.Replace(contents, []byte(`"action":"none"`), []byte(`"action":"remove"`), 1)
 				if bytes.Equal(contents, changed) {
 					test.Fatal("fixture did not contain the action being tampered")
 				}
@@ -191,11 +246,7 @@ func TestExplainExportFilenameMatchingIDNeedsDisambiguation(test *testing.T) {
 }
 
 func TestExplainRejectsAmbiguousAuthenticatedCandidateIDs(test *testing.T) {
-	dependencies, _ := planFixture(test)
-	value, _, _, err := runPlan(test, dependencies)
-	if err != nil {
-		test.Fatal(err)
-	}
+	dependencies, value := legacyExplainFixture(test)
 	value.ID = "plan_ambiguous"
 	value.Candidates = append(value.Candidates, value.Candidates[0])
 	store := plan.NewStore(dependencies.DataDirectory, dependencies.Now, nil)

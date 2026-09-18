@@ -2,9 +2,10 @@
 
 Date: 2026-09-18
 
-Status: The maintainer approved the product direction in conversation. This
-written contract is awaiting maintainer review; implementation is pending.
-This documentation slice does not enable deletion, change existing plans,
+Status: The maintainer approved the product direction and, on September 18,
+2026, approved proceeding from this written contract. Implementation follows
+the [read-only selection preview plan](../plans/001-explicit-plan-preview.md).
+The selection-preview slice does not enable deletion, change existing plans,
 complete a technical review, or qualify a release.
 
 ## Decision and scope
@@ -32,10 +33,11 @@ offline execution, private-state, and branch-preservation protections remain.
 Windows product support remains deferred to #15; native Windows compatibility
 CI remains required alongside both native macOS architectures.
 
-## Proposed command contract
+## Command contract and availability
 
-The following commands and flags describe future behavior, not functionality
-available in the current read-only preview:
+`plan --worktree` and `--skip-dirty` now record read-only selection intent.
+`--backup` is recognized only to refuse an unsupported request. The `apply`
+commands below are future behavior, not available deletion functionality:
 
 ```text
 treeclear plan --root <repository-scope> --worktree <exact-linked-worktree-path>
@@ -115,8 +117,41 @@ does not change the independent snapshot-manifest schema.
 
 Deletion eligibility, user confirmation, and plan authentication are separate
 requirements. A signature, selection flag, classification, or `--yes` alone
-is insufficient. The exact serialized fields and compatibility tests belong
-to the first read-only implementation slice after this contract is reviewed.
+is insufficient.
+
+### Version-2 selection preview
+
+New plans use schema version 2. A required `removal` object has these fields:
+
+| Field | Accepted value |
+| --- | --- |
+| `intent` | `inventory-preview` with no selection; `explicit-worktree-removal` with selected paths |
+| `contentDisposition` | `discard-all` |
+| `backupMode` | `none` |
+| `skipDirty` | Explicit boolean; true requires selected paths |
+| `selectedPaths` | Sorted array of exact canonical registered linked roots; empty array for inventory |
+| `execution` | `preview-only` |
+
+Every candidate has a required `selection` object with `selected` and
+`skipReason`. `selected` corresponds exactly to the plan's selected paths.
+`skipReason` is empty, or `dirty` for a selected target with `skipDirty=true`
+and known non-clean Git status; unknown Git state does not become a known
+dirty exclusion. Ordinary conservative classification and evidence remain
+separate, and explicit-removal eligibility is not yet evaluated.
+
+All v2 actions are `none`, snapshot fields are zero, and reclaimable bytes
+are zero. Authentication covers the complete policy and selection records;
+candidate fingerprints also bind selection. A canonical typed round trip
+rejects omitted boolean/string fields even if zero values would match.
+The store rejects conflicting records, unknown values, action upgrades, and
+stale fingerprints. V1 omits these added fields and retains its exact signed
+representation and snapshot intent. Snapshot-manifest versions do not change.
+
+V2 JSON explanations contain `schemaVersion`, `planId`, `removal`, and
+`candidate`; v1 retains candidate-only JSON. The read-only apply-load boundary
+authenticates first, then refuses both versions. V2 preview-only plans must
+never become executable after an upgrade; a future qualified execution
+contract must require a newly generated plan. No apply command is provided.
 
 ## Removal boundary and journal
 
@@ -216,8 +251,8 @@ Write failing tests before each behavior change. Acceptance must cover:
   macOS arm64/amd64 plus Windows compatibility CI. Preserve the macOS
   user-temporary-directory semantics in local isolated validation.
 
-No implementation, successful product deletion, independent source-review
-clearance, or production readiness is claimed by this documentation stage.
+The read-only preview implements selection recording, not product deletion.
+No independent source-review clearance or production readiness is claimed.
 
 ## Reference
 

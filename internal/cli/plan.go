@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -24,15 +25,27 @@ import (
 )
 
 func newPlanCommand(dependencies Dependencies) *cobra.Command {
-	var roots []string
+	var roots, worktrees []string
+	var skipDirty, backupRequested bool
 	var threshold, format, output string
 	command := &cobra.Command{
 		Use:   "plan",
-		Short: "Save an expiring cleanup plan without removing anything",
+		Short: "Save an expiring, permanently non-executable worktree preview",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			if err := command.Context().Err(); err != nil {
 				return err
+			}
+			if backupRequested {
+				return errors.New("backup is not implemented")
+			}
+			if skipDirty && len(worktrees) == 0 {
+				return errors.New("--skip-dirty requires --worktree")
+			}
+			for _, worktree := range worktrees {
+				if worktree == "" || strings.ContainsRune(worktree, 0) || !utf8.ValidString(worktree) {
+					return fmt.Errorf("invalid --worktree path %q", worktree)
+				}
 			}
 			if format != "human" && format != "json" {
 				return errors.New("--format must be human or json")
@@ -60,10 +73,24 @@ func newPlanCommand(dependencies Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			selectedPaths := make([]string, len(worktrees))
+			for index, worktree := range worktrees {
+				resolved, err := resolveInputPath(runtime.WorkingDirectory, worktree)
+				if err == nil {
+					resolved, err = pathutil.Canonical(resolved)
+				}
+				if err != nil {
+					return fmt.Errorf("resolve --worktree %q: %q", worktree, err.Error())
+				}
+				selectedPaths[index] = resolved
+			}
 			builder, request, err := configuredPlanBuilder(command.Context(), runtime, configuration)
 			if err != nil {
 				return err
 			}
+			request.SelectedPaths = selectedPaths
+			request.SkipDirty = skipDirty
+			request.BackupRequested = backupRequested
 			value, buildErr := builder.Build(command.Context(), request)
 			if value.ID == "" {
 				return buildErr
@@ -106,6 +133,9 @@ func newPlanCommand(dependencies Dependencies) *cobra.Command {
 		},
 	}
 	command.Flags().StringArrayVar(&roots, "root", nil, "Repository discovery root (repeatable; defaults to configured roots or the containing repository)")
+	command.Flags().StringArrayVar(&worktrees, "worktree", nil, "Exact linked-worktree root to select in a read-only preview (repeatable)")
+	command.Flags().BoolVar(&skipDirty, "skip-dirty", false, "Record skipping selected worktrees with known tracked or non-ignored untracked changes")
+	command.Flags().BoolVar(&backupRequested, "backup", false, "Request a backup (not implemented; true is rejected)")
 	command.Flags().StringVar(&threshold, "inactivity-threshold", "", "Required inactivity, such as 24h or 7d (default configuration: 7d)")
 	command.Flags().StringVar(&format, "format", "human", "Output format: human or json")
 	command.Flags().StringVar(&output, "output", "", "Export an independent private copy on the state filesystem; never overwrite")
@@ -164,16 +194,21 @@ func renderPlan(output io.Writer, format, path string, value domain.Plan, conten
 	if _, err := fmt.Fprintf(output, "Plan: %s\nSaved: %s\nExpires: %s\n", strconv.Quote(value.ID), strconv.Quote(path), value.ExpiresAt.Format("2006-01-02T15:04:05Z07:00")); err != nil {
 		return err
 	}
+	if value.SchemaVersion == 2 {
+		if err := renderRemovalPreview(output, value.Removal); err != nil {
+			return err
+		}
+	}
 	writer := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "CANDIDATE\tCLASSIFICATION\tACTION\tBRANCH\tPATH\tREASONS"); err != nil {
+	if _, err := fmt.Fprintln(writer, "CANDIDATE\tSELECTION\tORDINARY CLASSIFICATION\tACTION\tBRANCH\tPATH\tREASONS"); err != nil {
 		return err
 	}
 	for _, candidate := range value.Candidates {
 		var reasons []string
 		for _, reason := range candidate.Decision.Reasons {
-			reasons = append(reasons, reason.Code)
+			reasons = append(reasons, strconv.Quote(reason.Code))
 		}
-		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", candidate.ID, candidate.Decision.Classification, candidate.Action, strconv.Quote(candidate.Worktree.Branch), strconv.Quote(candidate.Worktree.Path), strings.Join(reasons, ",")); err != nil {
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", strconv.Quote(candidate.ID), strconv.Quote(candidateSelectionLabel(candidate)), strconv.Quote(string(candidate.Decision.Classification)), strconv.Quote(candidate.Action), strconv.Quote(candidate.Worktree.Branch), strconv.Quote(candidate.Worktree.Path), strings.Join(reasons, ",")); err != nil {
 			return err
 		}
 	}
@@ -182,6 +217,34 @@ func renderPlan(output io.Writer, format, path string, value domain.Plan, conten
 	}
 	_, err := fmt.Fprintf(output, "Safe: %d; review: %d; protected: %d; reclaimable bytes: %d\nNo worktrees were removed.\n", value.Summary.Safe, value.Summary.Review, value.Summary.Protected, value.Summary.ReclaimableBytes)
 	return err
+}
+
+func renderRemovalPreview(output io.Writer, removal *domain.RemovalPlan) error {
+	if removal == nil {
+		return errors.New("preview plan is missing removal metadata")
+	}
+	const notice = "Execution: %s (permanently non-executable); apply is unavailable.\n" +
+		"Intent: %s\n" +
+		"Ordinary conservative classification only; not explicit-removal eligibility. Eligibility is not implemented; selection does not authorize removal.\n" +
+		"Content disposition: %s (intent only); all contents, including ignored files, would be discarded without backup.\n" +
+		"Backup mode: %s (no backup; no Treeclear undo).\n" +
+		"Skip dirty: %t\n" +
+		"Local branches are preserved; branches do not preserve uncommitted or ignored contents.\n"
+	_, err := fmt.Fprintf(output, notice, strconv.Quote(removal.Execution), strconv.Quote(removal.Intent), strconv.Quote(removal.ContentDisposition), strconv.Quote(removal.BackupMode), removal.SkipDirty)
+	return err
+}
+
+func candidateSelectionLabel(candidate domain.Candidate) string {
+	if candidate.Selection == nil {
+		return "not recorded"
+	}
+	if !candidate.Selection.Selected {
+		return "unselected"
+	}
+	if candidate.Selection.SkipReason != "" {
+		return "skipped (" + candidate.Selection.SkipReason + ")"
+	}
+	return "selected"
 }
 
 func writePlanWarnings(output io.Writer, warnings []string) error {

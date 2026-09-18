@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8J delivered; explicit-removal scope amended; mutation remains review-gated
+- Status: In progress — Task 8J delivered; explicit-selection preview implemented; mutation remains review-gated
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -50,19 +50,22 @@ exposed.
 The maintainer approved explicit whole-worktree deletion without backup by
 default, including dirty and ignored contents, with optional `--skip-dirty`
 and requested backup. [The written contract](../specs/2026-09-18-explicit-worktree-removal.md)
-awaits maintainer review. This entry updates the remaining delivery scope;
-it does not change the current preview or authorize actual user-data deletion.
+was approved for implementation on September 18, 2026. This entry updates
+the remaining delivery scope; it does not authorize actual user-data deletion.
 
-The next implementation slice is read-only: a new authenticated plan schema,
-literal target selection, separate disposal/eligibility policy, human/JSON
-rendering, and historical-plan compatibility/refusal. Default all-content
+The current implementation slice is read-only: a new authenticated plan
+schema, literal target selection, disposal-policy records, human/JSON
+rendering, and historical-plan compatibility/refusal. All v2 actions remain
+`none`, including selected candidates, and ordinary classification is not
+explicit-removal eligibility. Default all-content
 disposal applies only to explicitly selected worktrees, not all inventory
 results. `--yes` is confirmation, not a safety override. Do not skip a `dirty`
 reason in the existing short-circuit policy: doing so can hide active or
 unknown evidence that the original evaluation never reached.
 
-After written-contract review, expand the ordered delivery slices in the
-spec into a detailed TDD implementation plan. Tasks 9-11 below retain the
+The [explicit-selection preview plan](001-explicit-plan-preview.md) expands
+the first read-only slice into TDD tasks. Dedicated explicit-removal
+eligibility and mutation remain separate slices. Tasks 9-11 below retain the
 original sketches for context; their mandatory snapshots, clean-only policy,
 and no-force assumptions must not be implemented unchanged for this new
 explicit mode. Keep ordinary/scheduled cleanup safe-only. The remaining
