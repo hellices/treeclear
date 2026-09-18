@@ -16,6 +16,31 @@ Each plan must leave the repository buildable and tested. Plans are execution
 records, while `docs/architecture/` and `docs/specs/` remain the durable source
 of product and protocol behavior.
 
+## Explicit-removal scope amendment — 2026-09-18
+
+The user-approved direction is whole-content removal of explicitly selected
+linked worktrees, without backup by default. Dirty, untracked, and ignored
+contents are included; `--skip-dirty` and requested backup are independent
+plan-bound options. Local branches and retained target/evidence protections
+remain. See [the written contract](../specs/2026-09-18-explicit-worktree-removal.md),
+which awaits maintainer review before its detailed implementation plan.
+
+The next Plan 001 slice is versioned explicit selection and read-only
+plan/explain behavior, followed by separately reviewed mutation slices.
+Do not execute the old Tasks 8-11 sketches unchanged: mandatory snapshot
+orchestration and restore move to the optional backup track, and default
+dirty disposal needs explicit selection rather than a global policy bypass.
+Delivered version-1 plans and historical completion records are unchanged;
+new apply must reject those plans instead of reinterpreting snapshot intent.
+
+This docs-only amendment delivers no deletion or new CLI flag. Source-review
+#23 continues to gate dependent shared identity/source-read work; #18's
+process-completeness requirement is unchanged. No replacement review or
+reader may be used to bypass the previously unavailable source assessment.
+Later plans must carry the new versioned contract without broadening
+scheduled safe-only cleanup. Requested backup, if implemented, still requires
+complete verified recovery before the first removal.
+
 ## First-release platform scope
 
 Execute Plans 001-004 for the macOS-first supported release. Windows product
@@ -66,10 +91,11 @@ the dependent product stages, clear process visibility #18 or source review
 |---|---|
 | `treeclear`, `version` | 001 |
 | `scan --root --inactivity-threshold --format` | 001 |
-| `plan --root --inactivity-threshold --format --output` | 001 |
+| `plan --root --inactivity-threshold --format --output` | 001; existing read-only preview |
+| Proposed `plan --worktree --skip-dirty --backup` | 001 explicit-removal amendment; backup unavailable until qualified |
 | `explain --plan --format` | 001 |
-| `apply --plan --format` | 001 |
-| `restore`, `trash list`, `trash prune` | 001 |
+| Proposed `apply --plan --format --yes` | 001 explicit-removal amendment |
+| `restore`, `trash list`, `trash prune` | 001 optional backup track |
 | `adapters list`, `adapters doctor` | 002 |
 | `adapters init`, `validate`, `test`, `trust` | 003 |
 | `adapters update`, `adapters rollback` | 003 |
@@ -82,12 +108,14 @@ the dependent product stages, clear process visibility #18 or source review
 |---|---|---|---|
 | Unknown never means inactive | `EvidenceState=unknown`, `GitStateKnown`, and reason codes | Policy engine | 001 Tasks 4-6, 002 Tasks 4-10 |
 | Process enumeration must be complete | `process.Collection.Complete` plus global unknown sentinel | Correlator and policy | 001 Tasks 5-6 |
-| No primary/current/dirty/locked removal | Full `candidatePreconditions` | Apply revalidator | 001 Tasks 6 and 9 |
+| No primary/current/locked/active/unknown removal | Full `candidatePreconditions` and complete evidence | Apply revalidator | 001 Tasks 6 and 9 |
+| Dirty disposal only through explicit selection | New schema binding exact selection, disposition, and `skipDirty`; not yet implemented | Eligibility evaluator and apply revalidator | 001 explicit-removal slices |
 | Exact plan and policy | Canonical `PolicySettings`, `PolicyDigest`, candidate fingerprint, expiry | `EnvironmentVerifier` | 001 Tasks 7 and 9 |
 | Exact adapters and commands | Adapter/source/bundle provenance, `AdapterLockDigest`, trust digest, executable, argv, cwd, and environment identities | `EnvironmentVerifier` | 002 Tasks 3-6, 003 Tasks 2 and 5 |
 | Custom trust scope matches apply mode | `Plan.IntendedApplyMode` and scoped trust record | Collector plus apply engine | 002 Task 6, 003 Task 5 |
 | Update and apply never overlap | Shared `internal/statelock` lock | Apply and updater | 001 Task 9, 003 Task 7 |
-| Snapshot before mutation | Snapshot receipt plus policy/evidence digests | Apply engine | 001 Tasks 8 and 9 |
+| No silent change of backup intent | Versioned backup mode; reject version-1 mutation and unsupported backup requests | Plan reader and apply engine | 001 explicit-removal slices |
+| Requested backup before mutation | Verified complete backup receipt plus policy/evidence digests; no unbacked fallback | Apply engine | 001 optional backup track |
 | Branch preserved | Removal argv omits branch deletion | Git client | 001 Tasks 3, 9, and 11 |
 | Apply stays offline | No updater dependency in apply and network-failing e2e transport | Apply e2e | 003 Task 7 |
 | Apply never executes provider commands | Local-readonly collection plus file-only executable verification | Apply e2e | 002 Tasks 5-6, 003 Task 7 |

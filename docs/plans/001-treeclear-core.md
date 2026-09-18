@@ -1,6 +1,6 @@
 # Treeclear Safety Core Implementation Plan
 
-- Status: In progress — Task 8J delivered; remaining lifecycle review-gated
+- Status: In progress — Task 8J delivered; explicit-removal scope amended; mutation remains review-gated
 - Sequence: 001 of 004
 - Source architecture: [Treeclear Architecture](../architecture/2026-09-12-treeclear.md)
 - Depends on: [000 Minimal Development Baseline](000-development-harness.md)
@@ -45,9 +45,39 @@ Each slice keeps its safety contract independently reviewable.
 Agent adapters and later plans remain unimplemented; no mutation command is
 exposed.
 
-**Goal:** Build a working macOS Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, safely removes approved worktrees, and restores them from verified local snapshots. Windows product qualification is deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
+## Explicit-removal amendment — 2026-09-18
 
-**Architecture:** A Go CLI delegates all operating-system and Git reads to narrow collectors, converts them into immutable domain values, and evaluates a pure fail-closed policy. Apply reloads the exact plan, re-collects every precondition, snapshots every pending target, and only then performs serial `git worktree remove` operations with a durable journal.
+The maintainer approved explicit whole-worktree deletion without backup by
+default, including dirty and ignored contents, with optional `--skip-dirty`
+and requested backup. [The written contract](../specs/2026-09-18-explicit-worktree-removal.md)
+awaits maintainer review. This entry updates the remaining delivery scope;
+it does not change the current preview or authorize actual user-data deletion.
+
+The next implementation slice is read-only: a new authenticated plan schema,
+literal target selection, separate disposal/eligibility policy, human/JSON
+rendering, and historical-plan compatibility/refusal. Default all-content
+disposal applies only to explicitly selected worktrees, not all inventory
+results. `--yes` is confirmation, not a safety override. Do not skip a `dirty`
+reason in the existing short-circuit policy: doing so can hide active or
+unknown evidence that the original evaluation never reached.
+
+After written-contract review, expand the ordered delivery slices in the
+spec into a detailed TDD implementation plan. Tasks 9-11 below retain the
+original sketches for context; their mandatory snapshots, clean-only policy,
+and no-force assumptions must not be implemented unchanged for this new
+explicit mode. Keep ordinary/scheduled cleanup safe-only. The remaining
+Task 8 manager/create/restore work and Task 10 trash management belong to the
+optional backup track; delivered snapshot primitives and tests stay intact.
+
+Source-review #23 remains open and continues to gate dependent shared
+identity/source-read and mutation work. A documentation or unrelated new-slice
+review does not clear it. Complete process evidence #18 and native platform
+checks remain prerequisites; no privilege experiment or review rerouting is
+authorized. No task is completed merely by changing this scope.
+
+**Goal:** Build a working macOS Treeclear CLI that discovers Git worktrees, correlates process activity, classifies candidates, writes expiring plans, and removes explicitly selected whole worktrees without backup by default. Backup and restore are optional separately qualified capabilities. Windows product qualification is deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
+
+**Architecture:** A Go CLI delegates operating-system and Git reads to narrow collectors, converts them into immutable domain values, and separates explicit content-disposal policy from retained fail-closed eligibility checks. Apply reloads a new-schema plan, re-collects every precondition, verifies every requested backup if supported, and performs serial plan-authorized Git removals with a durable journal. Version-1 plans never acquire new deletion semantics.
 
 **Tech Stack:** Go 1.26.0 with toolchain 1.26.5, Cobra 1.10.2, go-toml/v2 2.4.3, gopsutil/v4 4.26.8, x/sys 0.41.0, go-cmp 0.7.0, Git 2.36 or newer, standard-library tar/gzip and crypto packages.
 
@@ -65,14 +95,18 @@ exposed.
 - Default plan expiry: exactly 15 minutes.
 - Running `treeclear` without arguments is read-only.
 - Unknown, inaccessible, malformed, or conflicting evidence must block the affected candidate.
-- Never invoke `git worktree remove --force` in the default cleanup path.
+- Never invoke `git worktree remove --force` in ordinary/scheduled cleanup.
+  A reviewed explicit discard-all plan may authorize a single force only
+  after all retained checks; never defeat a lock or escalate on failure.
 - Never remove the primary worktree.
 - Preserve local branches during ordinary worktree cleanup.
 - Agent-session archive and deletion are outside this MVP.
 - Apply is offline and must not download dependencies, adapters, or updates.
 - Apply uses the exact policy, adapter bundle, executable, argv, canonical cwd,
   and allowed environment identities recorded by the plan.
-- All pending candidates must pass preflight and snapshot verification before the first removal.
+- All pending candidates must pass preflight before the first removal.
+  Every requested backup must also be verified first; unsupported or failed
+  backup never falls back to unbacked deletion.
 - Snapshots remain local and private; Treeclear has no telemetry.
 
 ---
@@ -2882,6 +2916,12 @@ oracle corrections, not runtime defects; they still require exact-head re-review
 and renewed native CI before merge.
 
 ### Remaining Task 8 lifecycle
+
+The following original lifecycle belongs to optional backup/restore under
+the explicit-removal amendment. Its review gates remain in force, and its
+non-ignored snapshot coverage is not sufficient to advertise full recovery
+of the new discard-all scope. Nothing here is completed or waived by default
+no-backup removal.
 
 Task8G closure: PR #13 merged reviewed head
 `5fe8cb288898a31342b14d1053ef93e68c307f64` as

@@ -7,6 +7,14 @@ Cleanup, recovery snapshots, restore, and agent-provider adapters are not
 implemented yet. A `safe` classification or a signed plan is not deletion
 authorization. None of these commands removes a worktree.
 
+**Planned removal behavior:** explicitly selected worktrees will be removed
+with all local contents, including dirty and ignored files, without backup
+by default. Branches and non-optional target/evidence protections remain.
+Opt-in backup and `--skip-dirty` are separate choices. This is the
+[new removal contract](docs/specs/2026-09-18-explicit-worktree-removal.md),
+not available flags or deletion functionality; the current version-1 preview
+behavior documented below is unchanged.
+
 **Platform scope:** the first supported release targets macOS. Windows support
 is deferred to [follow-up #15](https://github.com/hellices/treeclear/issues/15).
 Existing Windows code and native CI are retained as compatibility evidence,
