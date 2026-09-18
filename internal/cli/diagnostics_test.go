@@ -142,8 +142,11 @@ func TestPartialPlanDiagnosticsStayCompactAndLossless(test *testing.T) {
 		}
 	}
 	explained, explainDiagnostics, explainErr := runExplain(dependencies, value.Candidates[0].ID, "--plan", value.ID, "--format", "json")
-	var candidate domain.Candidate
-	if explainErr != nil || json.Unmarshal(explained, &candidate) != nil || !reflect.DeepEqual(candidate, value.Candidates[0]) {
+	if explainErr != nil {
+		test.Fatal(explainErr)
+	}
+	explanation := decodePreviewExplanation(test, explained)
+	if explanation.PlanID != value.ID || !reflect.DeepEqual(explanation.Removal, value.Removal) || !reflect.DeepEqual(explanation.Candidate, value.Candidates[0]) {
 		test.Fatal("explanation no longer preserves complete authenticated candidate evidence")
 	}
 	if len(explainDiagnostics) > 4096 || !strings.Contains(explainDiagnostics, "saved plan JSON") {

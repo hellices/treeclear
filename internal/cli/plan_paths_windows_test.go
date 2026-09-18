@@ -2,16 +2,37 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hellices/treeclear/internal/config"
-	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/pathutil"
 )
+
+func TestPlanWindowsAnchorsSelectedPaths(test *testing.T) {
+	for _, kind := range []string{"root_relative", "drive_relative"} {
+		test.Run(kind, func(test *testing.T) {
+			dependencies, inventory := selectionFixture(test, "selected, with spaces")
+			target := inventory.worktrees[0].Path
+			volume := filepath.VolumeName(target)
+			reference := strings.TrimPrefix(target, volume)
+			if kind == "drive_relative" {
+				relative, err := filepath.Rel(dependencies.WorkingDirectory, target)
+				if err != nil {
+					test.Fatal(err)
+				}
+				reference = volume + relative
+			}
+			value, _, _, err := runPlan(test, dependencies, "--worktree", reference)
+			if err != nil {
+				test.Fatal(err)
+			}
+			assertSelectionPreview(test, value, []string{target}, false)
+		})
+	}
+}
 
 func TestPlanAndExplainWindowsRootRelativeFiles(test *testing.T) {
 	for _, operation := range []string{"explain", "export"} {
@@ -48,12 +69,9 @@ func TestPlanAndExplainWindowsRootRelativeFiles(test *testing.T) {
 			if err != nil {
 				test.Fatal(err)
 			}
-			var candidate domain.Candidate
-			if err := json.Unmarshal(output, &candidate); err != nil {
-				test.Fatal(err)
-			}
-			if candidate.Fingerprint != requested.Candidates[0].Fingerprint {
-				test.Fatalf("root-relative file selected another authenticated plan: other=%t", candidate.Fingerprint == other.Candidates[0].Fingerprint)
+			explanation := decodePreviewExplanation(test, output)
+			if explanation.PlanID != requested.ID || explanation.Candidate.Fingerprint != requested.Candidates[0].Fingerprint {
+				test.Fatalf("root-relative file selected another authenticated plan: other=%t", explanation.Candidate.Fingerprint == other.Candidates[0].Fingerprint)
 			}
 		})
 	}

@@ -5,16 +5,54 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hellices/treeclear/internal/config"
-	"github.com/hellices/treeclear/internal/domain"
 	"github.com/hellices/treeclear/internal/pathutil"
+	"github.com/hellices/treeclear/internal/plan"
 )
+
+func TestPlanSelectionResolvesSymlinkBeforeParentTraversal(test *testing.T) {
+	dependencies, inventory := selectionFixture(test, "outer", "unselected")
+	outer := inventory.worktrees[0].Path
+	target := filepath.Join(outer, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		test.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dependencies.WorkingDirectory, "alias")); err != nil {
+		test.Fatal(err)
+	}
+	value, _, _, err := runPlan(test, dependencies, "--worktree", "alias/..")
+	if err != nil {
+		test.Fatal(err)
+	}
+	assertSelectionPreview(test, value, []string{outer}, false)
+}
+
+func TestPlanRejectsDuplicateSymlinkSelection(test *testing.T) {
+	dependencies, inventory := selectionFixture(test, "selected")
+	if err := os.Symlink(inventory.worktrees[0].Path, filepath.Join(dependencies.WorkingDirectory, "alias")); err != nil {
+		test.Fatal(err)
+	}
+	_, output, _, err := runPlan(test, dependencies, "--worktree", "selected", "--worktree", "alias")
+	if !errors.Is(err, plan.ErrPlanInvalid) || len(output) != 0 {
+		test.Fatalf("duplicate alias selection accepted: output %q, error %v", output, err)
+	}
+	assertNoSelectionState(test, dependencies)
+}
+
+func TestPlanSelectionTreatsGlobCharactersLiterally(test *testing.T) {
+	dependencies, inventory := selectionFixture(test, "feature*", "feature-other")
+	value, _, _, err := runPlan(test, dependencies, "--worktree", "feature*")
+	if err != nil {
+		test.Fatal(err)
+	}
+	assertSelectionPreview(test, value, []string{inventory.worktrees[0].Path}, false)
+}
 
 func planParentAlias(test *testing.T, root string) (string, string) {
 	test.Helper()
@@ -49,11 +87,8 @@ func TestExplainResolvesExplicitFileBeforeParentTraversal(test *testing.T) {
 		if err != nil {
 			test.Fatal(err)
 		}
-		var candidate domain.Candidate
-		if err := json.Unmarshal(output, &candidate); err != nil {
-			test.Fatal(err)
-		}
-		if candidate.Fingerprint != second.Candidates[0].Fingerprint {
+		explanation := decodePreviewExplanation(test, output)
+		if explanation.PlanID != second.ID || explanation.Candidate.Fingerprint != second.Candidates[0].Fingerprint {
 			test.Fatalf("explicit file %q selected another authenticated plan", path)
 		}
 	}

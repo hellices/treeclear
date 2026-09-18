@@ -126,7 +126,7 @@ func TestStoreAuthenticatesBeforeMetadataValidation(test *testing.T) {
 		change       func(*domain.Plan)
 		trustedError error
 	}{
-		{"schema", func(value *domain.Plan) { value.SchemaVersion = 2 }, ErrPlanSchema},
+		{"schema", func(value *domain.Plan) { value.SchemaVersion = 99 }, ErrPlanSchema},
 		{"expiry", func(value *domain.Plan) {
 			value.ExpiresAt = value.GeneratedAt
 			value.GeneratedAt = value.GeneratedAt.Add(-time.Minute)
@@ -277,7 +277,7 @@ func TestStoreRejectsInvalidSaveWithoutFilesystemChanges(test *testing.T) {
 		{"backslash ID", func(value *domain.Plan) { value.ID = `plan_..\outside` }},
 		{"ADS ID", func(value *domain.Plan) { value.ID = "plan_name:stream" }},
 		{"long ID", func(value *domain.Plan) { value.ID = "plan_" + strings.Repeat("a", 129) }},
-		{"schema", func(value *domain.Plan) { value.SchemaVersion = 2 }},
+		{"schema", func(value *domain.Plan) { value.SchemaVersion = 99 }},
 		{"zero expiry", func(value *domain.Plan) { value.ExpiresAt = time.Time{} }},
 		{"expired", func(value *domain.Plan) { value.ExpiresAt = value.GeneratedAt }},
 		{"future generation", func(value *domain.Plan) { value.GeneratedAt = value.GeneratedAt.Add(time.Minute) }},

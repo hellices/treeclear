@@ -154,7 +154,7 @@ func TestBuilderKeepsIndependentWorktreeFailureSentinelsLocal(test *testing.T) {
 		test.Fatalf("independent PID-zero root failures lost locality: %#v, %v", value.Summary, err)
 	}
 	for _, candidate := range value.Candidates {
-		if candidate.Worktree.Path == healthy.Path && (candidate.Action != "remove" || !candidate.Snapshot.Required) {
+		if candidate.Worktree.Path == healthy.Path && (candidate.Decision.Classification != domain.Safe || candidate.Action != "none" || candidate.Snapshot.Required) {
 			test.Fatalf("healthy neighbor was blocked: %#v", candidate)
 		}
 	}

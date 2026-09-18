@@ -171,7 +171,7 @@ require hard-link publication support. Linux compilation is supplementary,
 not a substitute for the required native macOS/Windows jobs. An interrupted
 process may leave private staging files; automatic recovery is not yet added.
 
-The store signs the complete canonical version-1 JSON with HMAC-SHA-256,
+The store signs the complete canonical version-1 or version-2 JSON with HMAC-SHA-256,
 including explanations, planning-only evidence, observation timestamps, and
 list ordering. UTC timestamp normalization does not mutate caller values.
 `Load` requires the exact canonical bytes, apart from surrounding whitespace:
@@ -180,7 +180,7 @@ aliased fields and noncanonical times are rejected rather than interpreted
 ambiguously. The MAC is checked before schema, expiry, or action metadata is
 trusted. Another installation's key cannot authenticate an exported plan.
 
-The version-1 integrity object is the final JSON field. Loading first checks
+The integrity object is the final JSON field in both versions. Loading first checks
 its fixed canonical trailer and authenticates the raw bytes with the MAC
 value elided, before decoding candidates or evidence. A canonical typed
 round-trip is checked afterward. Compact unauthenticated arrays therefore
@@ -193,7 +193,11 @@ relative filenames without an extension. A valid ID takes precedence; use
 `./plan_example` or an absolute path to load a file whose name is also an ID.
 Expiry must be strictly later than the clock. The builder
 owns populating generation time; this low-level store rejects nonzero future
-generation times but accepts zero for minimal plan construction. Missing or
+generation times and accepts zero only for legacy version-1 construction.
+Version 2 requires a known generation time, explicit preview-only disposal
+policy, matching candidate selection, zero removal/snapshot actions, and
+consistent fingerprints and summary. Missing/unknown policy fields are
+rejected, not given permissive defaults. Missing or
 corrupt key reads fail without generating replacement state; existing corrupt
 keys are never silently replaced by saves. Invalid saves are rejected before
 state creation, and loading never creates state or repairs ACLs.
@@ -207,11 +211,18 @@ back shared initialization or delete immutable files used by other callers.
 
 ## Plan building and inspection
 
-Task 7C's `Builder.Build` uses explicit inventory/process interfaces, an
+`Builder.Build` uses explicit inventory/process interfaces, an
 injected clock, and `Request` policy settings and intended apply mode. It
 collects inventory before bounded process inspection, correlates evidence,
-then evaluates policy before fingerprinting the final action and snapshot
-requirements. Only safe candidates propose `remove`, with a required snapshot.
+then evaluates ordinary policy before fingerprinting the final preview.
+The explicit-selection slice supersedes Task 7C's version-1 proposed removals:
+all new candidates have `action=none` and empty snapshot requirements,
+including selected clean/dirty targets. Only classification counts remain in
+the summary; reclaimable bytes are zero. `Request.SelectedPaths` is an explicit
+canonical-root list, never inferred from discovery or configuration.
+`SkipDirty` records known dirty exclusions, while `BackupRequested` fails
+before collection. Selection does not bypass any ordinary policy reason or
+claim that explicit-removal eligibility has been evaluated.
 Generation/expiry are recorded, policy settings are digested, and plan IDs
 combine canonical content with cryptographic randomness. No mutation API or
 adapter collection is wired into this stage.
@@ -222,7 +233,11 @@ diagnostics blocking potentially affected candidates. Missing or conflicting
 worktree identity and incomplete process enumeration never establish safety.
 The CLI persists a returned partial plan but exits unsuccessfully. Tests cover
 collector ordering, policy/action/fingerprint coupling, immutability, timeout
-handling, duplicate identities, and summary overflow using synthetic data.
+handling, duplicate/overlapping selection, versioned inspection, and zero
+unactioned byte totals using synthetic data. `Store.LoadForApply` authenticates
+and validates before rejecting both historical v1 and preview-only v2 with
+`ErrPlanNotExecutable`. This is a read-only refusal boundary, not an apply
+implementation. Snapshot-manifest versions remain independent.
 
 Proven-local process failures carry a direct `*process.WorktreeError` with
 affected input worktree paths. The collector's diagnostic strings preserve

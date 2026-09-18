@@ -23,17 +23,22 @@ linked worktrees, without backup by default. Dirty, untracked, and ignored
 contents are included; `--skip-dirty` and requested backup are independent
 plan-bound options. Local branches and retained target/evidence protections
 remain. See [the written contract](../specs/2026-09-18-explicit-worktree-removal.md),
-which awaits maintainer review before its detailed implementation plan.
+approved for implementation by the maintainer on September 18, 2026.
+The first scoped implementation follows the
+[explicit-selection preview plan](001-explicit-plan-preview.md).
 
-The next Plan 001 slice is versioned explicit selection and read-only
-plan/explain behavior, followed by separately reviewed mutation slices.
+The current Plan 001 slice implements versioned explicit selection and
+read-only plan/explain behavior. Dedicated eligibility and then mutation
+remain separately reviewed slices with their existing prerequisites.
 Do not execute the old Tasks 8-11 sketches unchanged: mandatory snapshot
 orchestration and restore move to the optional backup track, and default
 dirty disposal needs explicit selection rather than a global policy bypass.
 Delivered version-1 plans and historical completion records are unchanged;
 new apply must reject those plans instead of reinterpreting snapshot intent.
 
-This docs-only amendment delivers no deletion or new CLI flag. Source-review
+The original docs-only amendment delivered no deletion or CLI flag. The
+selection preview now records literal `--worktree` and `--skip-dirty`, refuses
+requested backup, and never produces an executable action. Source-review
 #23 continues to gate dependent shared identity/source-read work; #18's
 process-completeness requirement is unchanged. No replacement review or
 reader may be used to bypass the previously unavailable source assessment.
@@ -92,7 +97,8 @@ the dependent product stages, clear process visibility #18 or source review
 | `treeclear`, `version` | 001 |
 | `scan --root --inactivity-threshold --format` | 001 |
 | `plan --root --inactivity-threshold --format --output` | 001; existing read-only preview |
-| Proposed `plan --worktree --skip-dirty --backup` | 001 explicit-removal amendment; backup unavailable until qualified |
+| `plan --worktree --skip-dirty` | 001 explicit-selection preview; no removal actions |
+| `plan --backup` | 001 explicit-selection preview; requested backup fails as unavailable |
 | `explain --plan --format` | 001 |
 | Proposed `apply --plan --format --yes` | 001 explicit-removal amendment |
 | `restore`, `trash list`, `trash prune` | 001 optional backup track |

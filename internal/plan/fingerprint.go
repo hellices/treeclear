@@ -15,34 +15,35 @@ import (
 )
 
 type candidatePreconditions struct {
-	Path               string                `json:"path"`
-	RepositoryRoot     string                `json:"repositoryRoot"`
-	CommonGitDir       string                `json:"commonGitDir"`
-	AdminDir           string                `json:"adminDir"`
-	Head               string                `json:"head"`
-	Branch             string                `json:"branch"`
-	Upstream           string                `json:"upstream"`
-	IndexHash          string                `json:"indexHash"`
-	AdminHash          string                `json:"adminHash"`
-	Primary            bool                  `json:"primary"`
-	Current            bool                  `json:"current"`
-	PathSafe           bool                  `json:"pathSafe"`
-	Detached           bool                  `json:"detached"`
-	Locked             bool                  `json:"locked"`
-	Prunable           bool                  `json:"prunable"`
-	GitStateKnown      bool                  `json:"gitStateKnown"`
-	CollectionErrors   []string              `json:"collectionErrors"`
-	Recoverable        bool                  `json:"recoverable"`
-	Status             domain.GitStatus      `json:"status"`
-	LastCommitAt       time.Time             `json:"lastCommitAt"`
-	MetadataModifiedAt time.Time             `json:"metadataModifiedAt"`
-	Snapshot           domain.SnapshotPlan   `json:"snapshot"`
-	Action             string                `json:"action"`
-	Decision           decisionPrecondition  `json:"decision"`
-	Processes          []processPrecondition `json:"processes"`
-	Agents             []agentPrecondition   `json:"agents"`
-	Adapters           []adapterPrecondition `json:"adapters"`
-	HasWarnings        bool                  `json:"hasWarnings"`
+	Path               string                     `json:"path"`
+	RepositoryRoot     string                     `json:"repositoryRoot"`
+	CommonGitDir       string                     `json:"commonGitDir"`
+	AdminDir           string                     `json:"adminDir"`
+	Head               string                     `json:"head"`
+	Branch             string                     `json:"branch"`
+	Upstream           string                     `json:"upstream"`
+	IndexHash          string                     `json:"indexHash"`
+	AdminHash          string                     `json:"adminHash"`
+	Primary            bool                       `json:"primary"`
+	Current            bool                       `json:"current"`
+	PathSafe           bool                       `json:"pathSafe"`
+	Detached           bool                       `json:"detached"`
+	Locked             bool                       `json:"locked"`
+	Prunable           bool                       `json:"prunable"`
+	GitStateKnown      bool                       `json:"gitStateKnown"`
+	CollectionErrors   []string                   `json:"collectionErrors"`
+	Recoverable        bool                       `json:"recoverable"`
+	Status             domain.GitStatus           `json:"status"`
+	LastCommitAt       time.Time                  `json:"lastCommitAt"`
+	MetadataModifiedAt time.Time                  `json:"metadataModifiedAt"`
+	Snapshot           domain.SnapshotPlan        `json:"snapshot"`
+	Action             string                     `json:"action"`
+	Decision           decisionPrecondition       `json:"decision"`
+	Processes          []processPrecondition      `json:"processes"`
+	Agents             []agentPrecondition        `json:"agents"`
+	Adapters           []adapterPrecondition      `json:"adapters"`
+	HasWarnings        bool                       `json:"hasWarnings"`
+	Selection          *domain.CandidateSelection `json:"selection,omitempty"`
 }
 
 type decisionPrecondition struct {
@@ -111,7 +112,7 @@ func CandidateFingerprint(candidate domain.Candidate) (string, error) {
 		Snapshot: candidate.Snapshot, Action: candidate.Action,
 		Decision:  decisionPrecondition{Classification: candidate.Decision.Classification, ReasonCodes: []string{}},
 		Processes: []processPrecondition{}, Agents: []agentPrecondition{}, Adapters: []adapterPrecondition{},
-		HasWarnings: len(candidate.Evidence.Warnings) != 0,
+		HasWarnings: len(candidate.Evidence.Warnings) != 0, Selection: candidate.Selection,
 	}
 	slices.Sort(preconditions.CollectionErrors)
 	for _, reason := range candidate.Decision.Reasons {

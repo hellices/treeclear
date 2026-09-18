@@ -151,7 +151,7 @@ func validateStoredPlan(value domain.Plan, now time.Time) error {
 	if now.IsZero() {
 		return fmt.Errorf("%w: current time is unknown", ErrPlanInvalid)
 	}
-	if value.SchemaVersion != 1 {
+	if value.SchemaVersion != LegacySchemaVersion && value.SchemaVersion != PreviewSchemaVersion {
 		return ErrPlanSchema
 	}
 	if !validPlanID(value.ID) {
@@ -162,6 +162,17 @@ func validateStoredPlan(value domain.Plan, now time.Time) error {
 	}
 	if !value.ExpiresAt.After(now) {
 		return ErrPlanExpired
+	}
+	if value.SchemaVersion == PreviewSchemaVersion {
+		return validatePreviewPlan(value)
+	}
+	if value.Removal != nil {
+		return fmt.Errorf("%w: legacy plans cannot contain removal policy", ErrPlanInvalid)
+	}
+	for _, candidate := range value.Candidates {
+		if candidate.Selection != nil {
+			return fmt.Errorf("%w: legacy plans cannot contain explicit selection", ErrPlanInvalid)
+		}
 	}
 	return nil
 }

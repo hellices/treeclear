@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ func TestPlanAndExplainUseRealGitWithoutMutation(test *testing.T) {
 		test.Run(scenario, func(test *testing.T) {
 			repository := testutil.NewRepository(test)
 			linked := repository.AddWorktree(test, "feature with spaces", "topic")
+			before := installedFixtureDigest(test, filepath.Dir(repository.Root))
 			registrations := repository.Git(test, "worktree", "list", "--porcelain", "-z")
 			branches := repository.Git(test, "for-each-ref", "--format=%(refname):%(objectname)", "refs/heads/")
 			admin := repository.Git(test, "-C", linked, "rev-parse", "--absolute-git-dir")
@@ -53,7 +55,7 @@ func TestPlanAndExplainUseRealGitWithoutMutation(test *testing.T) {
 				Processes: process.Collector{Source: source}, Now: clock.Now,
 			}
 			command := cli.NewRootCommand(dependencies)
-			command.SetArgs([]string{"plan", "--root", repository.Root, "--format", "json", "--output", exportPath})
+			command.SetArgs([]string{"plan", "--root", repository.Root, "--worktree", linked, "--format", "json", "--output", exportPath})
 			err = command.ExecuteContext(context.Background())
 			if (err != nil) != (scenario == "unknown") {
 				test.Fatalf("plan error = %v, stdout = %s, stderr = %s", err, stdout.String(), stderr.String())
@@ -65,6 +67,7 @@ func TestPlanAndExplainUseRealGitWithoutMutation(test *testing.T) {
 			if len(value.Candidates) != 2 || value.ExpiresAt.Sub(value.GeneratedAt) != 15*time.Minute {
 				test.Fatalf("plan = %#v", value)
 			}
+			checkReadOnlyPreview(test, value, []string{linked}, false)
 			var selected domain.Candidate
 			for _, candidate := range value.Candidates {
 				if candidate.Worktree.Primary && (candidate.Decision.Classification != domain.Protected || candidate.Action != "none") {
@@ -78,7 +81,7 @@ func TestPlanAndExplainUseRealGitWithoutMutation(test *testing.T) {
 					test.Fatalf("candidate fingerprint = %q, want %q, error = %v", candidate.Fingerprint, fingerprint, err)
 				}
 			}
-			if selected.ID == "" || selected.Decision.Classification != want || (selected.Action == "remove") != (want == domain.Safe) || selected.Snapshot.Required != (want == domain.Safe) {
+			if selected.ID == "" || selected.Decision.Classification != want {
 				test.Fatalf("linked candidate = %#v", selected)
 			}
 			exported, err := os.ReadFile(exportPath)
@@ -92,10 +95,7 @@ func TestPlanAndExplainUseRealGitWithoutMutation(test *testing.T) {
 			if err := command.ExecuteContext(context.Background()); err != nil {
 				test.Fatalf("explain = %v", err)
 			}
-			var explained domain.Candidate
-			if err := json.Unmarshal(stdout.Bytes(), &explained); err != nil || explained.Fingerprint != selected.Fingerprint {
-				test.Fatalf("explain lost candidate evidence: %v", err)
-			}
+			checkPreviewExplanation(test, stdout.Bytes(), value, selected)
 			clock.Advance(15 * time.Minute)
 			stdout.Reset()
 			command = cli.NewRootCommand(dependencies)
@@ -113,6 +113,10 @@ func TestPlanAndExplainUseRealGitWithoutMutation(test *testing.T) {
 			if actual := repository.Git(test, "for-each-ref", "--format=%(refname):%(objectname)", "refs/heads/"); actual != branches {
 				test.Fatal("commands changed local branches")
 			}
+			if !reflect.DeepEqual(before, installedFixtureDigest(test, filepath.Dir(repository.Root))) {
+				test.Fatal("commands changed fixture contents or created recovery artifacts")
+			}
+			checkPreviewOnlyState(test, dependencies.DataDirectory, value.ID)
 		})
 	}
 }
