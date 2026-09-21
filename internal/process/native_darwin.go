@@ -190,6 +190,10 @@ type darwinReader struct {
 	record darwinProcess
 }
 
+func (reader darwinReader) ExeWithContext(ctx context.Context) (string, error) {
+	return nativeDarwinExecutable(ctx, reader.record.pid)
+}
+
 func (reader darwinReader) CreateTimeWithContext(context.Context) (int64, error) {
 	return reader.record.created.UnixMilli(), nil
 }

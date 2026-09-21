@@ -82,7 +82,21 @@ tests and documentation rather than adding an owner/PID ignore list to policy.
 
 Process fields use native start time and effective UID rather than network
 username lookup. Executable, cwd and argv still come from native Darwin
-inspection. This cannot make a sequence of OS queries atomic or prevent a
+inspection. The executable reader preserves `proc_pidpath`'s thread-local
+errno across the native call on the same OS thread. It uses a fixed 4,096-byte
+buffer, rejects malformed lengths, missing/interior terminators and
+non-absolute paths, and checks cancellation before and after inspection.
+Missing errno on native failure is reported as unavailable native diagnostics
+with a synthetic I/O error, not as an observed OS error code.
+
+Every failed executable read remains uninspectable. `ENOENT` does not prove
+that a process exited: an owned live process can outlast its unlinked
+executable. Even a retained `ESRCH` is not permission to drop a record from a
+collection. Existing identity comparison, path canonicalization, unknown
+propagation, and incomplete-collection failures are unchanged. This correction
+does not establish complete visibility or deliver the proposed helper.
+
+This cannot make a sequence of OS queries atomic or prevent a
 process starting immediately afterwards. The evidence is a bounded current
 observation, not a lease. Future apply must invoke fresh collection and retain
 the full-plan revalidation requirement; saved helper output is not an input.
