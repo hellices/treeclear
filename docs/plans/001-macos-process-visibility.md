@@ -69,6 +69,49 @@ Slice B's implementation is intentionally contingent on the end-to-end
 prototype. This is not permission to ship an unproven helper or close #18
 after only Slice A or successful protective failures.
 
+## Independent correction: native executable errors
+
+Under the maintainer's instruction to continue, extract only the ordinary-user
+native executable error correction from PR #22 into a separate scoped PR.
+The pinned gopsutil Darwin executable reader replaces every failed
+`proc_pidpath` call with an untyped error containing only its return count.
+This loses the distinction between access denial, a missing executable path,
+and a missing process. Retain the original errno without treating any of
+those failures as successful inspection or evidence of inactivity.
+
+Files: `internal/process/native_darwin.go`,
+`internal/process/native_path_darwin.go`,
+`internal/process/native_path_darwin_test.go`, this plan, and the permission
+specification. Reuse only the error-retention code and unprivileged tests;
+do not import PR #22's probe, protocol, workflow, elevated execution, or
+name-disclosing diagnostics. Do not change dependencies or required CI.
+
+- [x] Reproduce the lost `ESRCH` on reviewed main with a failing native test.
+- [x] Preserve thread-local errno, bounded path validation, and cancellation.
+- [x] Cover native success, retained errors, malformed results, and a live
+  owned temporary executable that remains unknown after its file is unlinked.
+- [ ] Run all contributor checks and the installed-binary read-only regression
+  without elevation, using private disposable fixtures.
+- [ ] Obtain independent AI review of this correction and all three required
+  native CI results before any separately authorized merge.
+
+This is not PR #22 feasibility qualification or permission to merge that PR.
+Its failed authorized experiment and merge hold remain, as do process
+visibility #18, source-identity review #23, and signing prerequisites #25.
+No source-review assessment is retried or replaced. No deletion command,
+process exclusion, privileged product path, or release readiness is delivered.
+
+On local macOS 26.7 arm64, the native `ESRCH` regression failed against reviewed
+main with `unknown error: proc_pidpath returned 0`. The focused correction
+tests then passed. The copied system-sleeper fixture from PR #22 exited with
+`signal: killed` before unlink on this machine; its cause is not established.
+The regression now copies the owned Go test executable, waits for its bounded
+readiness signal, and kills/reaps only that child. It still requires actual
+native `ENOENT` while the same live process identity survives unlink. This is
+fixture isolation, not a change to product collection or an attribution of
+the hosted feasibility failure. Full validation, independent review, and
+native CI are separate remaining checkpoints.
+
 ## Slice A local execution record
 
 On September 16, 2026 (KST), macOS 26.6.2 arm64, the installed regression
